@@ -21,6 +21,41 @@ services:
       kafka:
         condition: service_started
 
+  anomaly-service:
+    build:
+      context: .
+      dockerfile: src/BoilerTelemetry.AnomalyService/Dockerfile
+    environment:
+      - CrudApiBaseUrl=http://boiler-telemetry-api:8080
+      - AnomalyService__BootstrapServers=kafka:9092
+      - AnomalyService__ConsumerGroup=anomaly-service-group
+      - AnomalyService__InputTopic=telemetry-events
+      - AnomalyService__OutputTopic=anomaly-events
+    depends_on:
+      kafka:
+        condition: service_started
+      boiler-telemetry-api:
+        condition: service_started
+    deploy:
+      replicas: 2
+
+  notification-worker:
+    build:
+      context: .
+      dockerfile: src/BoilerTelemetry.NotificationWorker/Dockerfile
+    environment:
+      - ConnectionStrings__PostgreSQL=Host=postgres;Port=5432;Database=boiler_telemetry;Username=postgres;Password=postgres
+      - NotificationWorker__BootstrapServers=kafka:9092
+      - NotificationWorker__ConsumerGroup=notification-worker-group
+      - NotificationWorker__InputTopic=anomaly-events
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    deploy:
+      replicas: 2
+
   postgres:
     image: postgres:16-alpine
     environment:
