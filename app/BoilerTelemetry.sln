@@ -1,4 +1,4 @@
-
+﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
@@ -14,6 +14,10 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BoilerTelemetry.AnomalyService", "src\BoilerTelemetry.AnomalyService\BoilerTelemetry.AnomalyService.csproj", "{E5555555-5555-5555-5555-555555555555}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BoilerTelemetry.NotificationWorker", "src\BoilerTelemetry.NotificationWorker\BoilerTelemetry.NotificationWorker.csproj", "{F6666666-6666-6666-6666-666666666666}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{38C2AAA1-3549-482E-874F-CB6A00FC5FE5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BoilerTelemetry.Tests", "tests\BoilerTelemetry.Tests\BoilerTelemetry.Tests.csproj", "{8AA5BD92-62DC-4E5D-BD09-21351657FD31}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -45,5 +49,12 @@ Global
 		{F6666666-6666-6666-6666-666666666666}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F6666666-6666-6666-6666-666666666666}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F6666666-6666-6666-6666-666666666666}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8AA5BD92-62DC-4E5D-BD09-21351657FD31}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8AA5BD92-62DC-4E5D-BD09-21351657FD31}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8AA5BD92-62DC-4E5D-BD09-21351657FD31}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8AA5BD92-62DC-4E5D-BD09-21351657FD31}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{8AA5BD92-62DC-4E5D-BD09-21351657FD31} = {38C2AAA1-3549-482E-874F-CB6A00FC5FE5}
 	EndGlobalSection
 EndGlobal
