@@ -23,7 +23,7 @@ public class KafkaTelemetryPublisher : ITelemetryPublisher, IDisposable
         var config = new ProducerConfig
         {
             BootstrapServers = _settings.BootstrapServers,
-            Acks = Acks.Leader,
+            Acks = Acks.All,
             LingerMs = 5,
             BatchNumMessages = 10000,
             EnableIdempotence = true

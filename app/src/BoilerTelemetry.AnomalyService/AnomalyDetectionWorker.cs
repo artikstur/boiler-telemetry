@@ -19,6 +19,12 @@ public class AnomalyDetectionWorker : BackgroundService
         PropertyNameCaseInsensitive = true
     };
 
+    private static readonly JsonSerializerOptions ApiJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true
+    };
+
     public AnomalyDetectionWorker(
         IOptions<AnomalyServiceSettings> settings,
         IHttpClientFactory httpClientFactory,
@@ -136,7 +142,7 @@ public class AnomalyDetectionWorker : BackgroundService
             var response = await client.GetAsync($"api/v1/boilers/{boilerId}", ct);
             if (!response.IsSuccessStatusCode) return null;
 
-            var boiler = await response.Content.ReadFromJsonAsync<Boiler>(JsonOptions, ct);
+            var boiler = await response.Content.ReadFromJsonAsync<Boiler>(ApiJsonOptions, ct);
             if (boiler is not null)
                 _cache.Set(cacheKey, boiler, TimeSpan.FromSeconds(60));
 
