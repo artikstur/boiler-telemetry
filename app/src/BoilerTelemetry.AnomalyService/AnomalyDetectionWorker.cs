@@ -1,7 +1,7 @@
 using System.Text.Json;
 using BoilerTelemetry.Domain.Entities;
 using Confluent.Kafka;
-using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Options;
 
 namespace BoilerTelemetry.AnomalyService;
@@ -10,7 +10,7 @@ public class AnomalyDetectionWorker : BackgroundService
 {
     private readonly AnomalyServiceSettings _settings;
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly IMemoryCache _cache;
+    private readonly IDistributedCache _cache;
     private readonly ILogger<AnomalyDetectionWorker> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -28,7 +28,7 @@ public class AnomalyDetectionWorker : BackgroundService
     public AnomalyDetectionWorker(
         IOptions<AnomalyServiceSettings> settings,
         IHttpClientFactory httpClientFactory,
-        IMemoryCache cache,
+        IDistributedCache cache,
         ILogger<AnomalyDetectionWorker> logger)
     {
         _settings = settings.Value;
@@ -102,8 +102,10 @@ public class AnomalyDetectionWorker : BackgroundService
     private async Task<Boiler?> GetBoilerAsync(Guid boilerId, CancellationToken ct)
     {
         var cacheKey = $"boiler_{boilerId}";
-        if (_cache.TryGetValue(cacheKey, out Boiler? cached))
-            return cached;
+
+        var cachedJson = await _cache.GetStringAsync(cacheKey, ct);
+        if (cachedJson is not null)
+            return JsonSerializer.Deserialize<Boiler>(cachedJson, ApiJsonOptions);
 
         try
         {
@@ -113,7 +115,17 @@ public class AnomalyDetectionWorker : BackgroundService
 
             var boiler = await response.Content.ReadFromJsonAsync<Boiler>(ApiJsonOptions, ct);
             if (boiler is not null)
-                _cache.Set(cacheKey, boiler, TimeSpan.FromSeconds(60));
+            {
+                var cacheOptions = new DistributedCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(60)
+                };
+                await _cache.SetStringAsync(
+                    cacheKey,
+                    JsonSerializer.Serialize(boiler, ApiJsonOptions),
+                    cacheOptions,
+                    ct);
+            }
 
             return boiler;
         }

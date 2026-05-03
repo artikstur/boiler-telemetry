@@ -5,7 +5,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<AnomalyServiceSettings>(
     builder.Configuration.GetSection("AnomalyService"));
 
-builder.Services.AddMemoryCache();
+builder.Services.AddStackExchangeRedisCache(options =>
+    options.Configuration = builder.Configuration.GetConnectionString("Redis") ?? "redis:6379");
 builder.Services.AddHttpClient("CrudApi", client =>
     client.BaseAddress = new Uri(builder.Configuration["CrudApiBaseUrl"] ?? "http://localhost:8080"));
 

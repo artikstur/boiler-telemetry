@@ -3,8 +3,9 @@ services:
     build:
       context: .
       dockerfile: src/BoilerTelemetry.Api/Dockerfile
-    ports:
-      - "8080:8080"
+    # no host port — nginx is the single entry point (mirrors K8s Service + Ingress pattern)
+    deploy:
+      replicas: 2
     environment:
       - ConnectionStrings__PostgreSQL=Host=postgres;Port=5432;Database=boiler_telemetry;Username=postgres;Password=postgres
       - InfluxDB__Url=http://influxdb:8086
@@ -31,11 +32,14 @@ services:
       - AnomalyService__ConsumerGroup=anomaly-service-group
       - AnomalyService__InputTopic=telemetry-events
       - AnomalyService__OutputTopic=anomaly-events
+      - ConnectionStrings__Redis=redis:6379
     depends_on:
       kafka:
         condition: service_started
       boiler-telemetry-api:
         condition: service_started
+      redis:
+        condition: service_healthy
     deploy:
       replicas: 2
 
@@ -109,6 +113,42 @@ services:
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 3
+
+  # ─── nginx — load balancer (replaces K8s Ingress in local dev) ──────────
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - boiler-telemetry-api
+
+  # ─── Redis — distributed cache shared across all service replicas ─────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ─── kafka-setup — creates topics with 3 partitions on first start ────────
+  kafka-setup:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      - kafka
+    command: >
+      bash -c "
+        cub kafka-ready -b kafka:9092 1 30 &&
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic telemetry-events --partitions 3 --replication-factor 1 &&
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic anomaly-events  --partitions 3 --replication-factor 1 &&
+        echo 'Topics ready'
+      "
+    restart: "no"
 
 volumes:
   postgres-data:
