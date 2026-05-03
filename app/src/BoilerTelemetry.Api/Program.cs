@@ -3,10 +3,23 @@ using BoilerTelemetry.Application.Services;
 using BoilerTelemetry.Application.Validators;
 using BoilerTelemetry.Infrastructure;
 using FluentValidation;
+using Serilog;
+using Serilog.Formatting.Compact;
+
+Log.Logger = new LoggerConfiguration()
+    .Enrich.FromLogContext()
+    .WriteTo.Console(new CompactJsonFormatter())
+    .CreateBootstrapLogger();
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Infrastructure (PostgreSQL, InfluxDB, Kafka)
+builder.Host.UseSerilog((ctx, services, cfg) => cfg
+    .ReadFrom.Configuration(ctx.Configuration)
+    .ReadFrom.Services(services)
+    .Enrich.FromLogContext()
+    .WriteTo.Console(new CompactJsonFormatter()));
+
+// Infrastructure (PostgreSQL, InfluxDB, Kafka, Redis)
 builder.Services.AddInfrastructure(builder.Configuration);
 
 // Application services
@@ -32,6 +45,17 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<BoilerTelemetry.Infrastructure.Persistence.AppDbContext>();
     db.Database.EnsureCreated();
 }
+
+app.UseSerilogRequestLogging(opts =>
+{
+    opts.EnrichDiagnosticContext = (diagCtx, httpCtx) =>
+    {
+        diagCtx.Set("RequestHost", httpCtx.Request.Host.Value ?? "");
+        diagCtx.Set("RequestScheme", httpCtx.Request.Scheme);
+        diagCtx.Set("UserAgent", httpCtx.Request.Headers["User-Agent"].ToString());
+        diagCtx.Set("RemoteIp", httpCtx.Connection.RemoteIpAddress?.ToString() ?? "");
+    };
+});
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 

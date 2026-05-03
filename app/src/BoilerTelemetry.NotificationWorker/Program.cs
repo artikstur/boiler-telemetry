@@ -2,8 +2,16 @@ using BoilerTelemetry.NotificationWorker;
 using BoilerTelemetry.NotificationWorker.Persistence;
 using BoilerTelemetry.NotificationWorker.Services;
 using Microsoft.EntityFrameworkCore;
+using Serilog;
+using Serilog.Formatting.Compact;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Host.UseSerilog((ctx, services, cfg) => cfg
+    .ReadFrom.Configuration(ctx.Configuration)
+    .ReadFrom.Services(services)
+    .Enrich.FromLogContext()
+    .WriteTo.Console(new CompactJsonFormatter()));
 
 builder.Services.Configure<NotificationWorkerSettings>(
     builder.Configuration.GetSection("NotificationWorker"));

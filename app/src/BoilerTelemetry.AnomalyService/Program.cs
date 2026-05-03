@@ -1,6 +1,14 @@
 using BoilerTelemetry.AnomalyService;
+using Serilog;
+using Serilog.Formatting.Compact;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Host.UseSerilog((ctx, services, cfg) => cfg
+    .ReadFrom.Configuration(ctx.Configuration)
+    .ReadFrom.Services(services)
+    .Enrich.FromLogContext()
+    .WriteTo.Console(new CompactJsonFormatter()));
 
 builder.Services.Configure<AnomalyServiceSettings>(
     builder.Configuration.GetSection("AnomalyService"));
