@@ -16,5 +16,13 @@ builder.Services.AddHostedService<NotificationProcessingWorker>();
 builder.Services.AddHealthChecks();
 
 var app = builder.Build();
+
+// Ensure database schema is created
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<BoilerTelemetry.NotificationWorker.Persistence.NotificationDbContext>();
+    db.Database.EnsureCreated();
+}
+
 app.MapHealthChecks("/health");
 app.Run();

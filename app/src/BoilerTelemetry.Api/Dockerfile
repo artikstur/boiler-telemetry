@@ -6,8 +6,7 @@ COPY src/BoilerTelemetry.Domain/*.csproj src/BoilerTelemetry.Domain/
 COPY src/BoilerTelemetry.Application/*.csproj src/BoilerTelemetry.Application/
 COPY src/BoilerTelemetry.Infrastructure/*.csproj src/BoilerTelemetry.Infrastructure/
 COPY src/BoilerTelemetry.Api/*.csproj src/BoilerTelemetry.Api/
-COPY BoilerTelemetry.sln .
-RUN dotnet restore
+RUN dotnet restore src/BoilerTelemetry.Api
 
 # Copy everything and publish
 COPY . .
