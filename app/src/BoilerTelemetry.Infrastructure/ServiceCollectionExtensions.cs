@@ -29,6 +29,10 @@ public static class ServiceCollectionExtensions
         services.Configure<KafkaSettings>(configuration.GetSection("Kafka"));
         services.AddSingleton<ITelemetryPublisher, KafkaTelemetryPublisher>();
 
+        // Redis distributed cache (shared between all API replicas)
+        services.AddStackExchangeRedisCache(opts =>
+            opts.Configuration = configuration.GetConnectionString("Redis") ?? "redis:6379");
+
         return services;
     }
 }
