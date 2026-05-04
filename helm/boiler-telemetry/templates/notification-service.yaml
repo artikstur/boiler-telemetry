@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "boiler-telemetry.fullname" . }}-notification-worker
+  labels:
+    {{- include "boiler-telemetry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: notification-worker
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "boiler-telemetry.selectorLabels" (dict "component" "notification-worker" "root" .) | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: {{ .Values.notificationWorker.port }}
