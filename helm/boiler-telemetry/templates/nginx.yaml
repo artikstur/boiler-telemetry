@@ -1,0 +1,73 @@
+{{- if .Values.nginx.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "boiler-telemetry.fullname" . }}-nginx-conf
+data:
+  nginx.conf: |
+    worker_processes auto;
+    events { worker_connections 1024; }
+    http {
+      upstream boiler_api {
+        server {{ include "boiler-telemetry.fullname" . }}-api:8080;
+      }
+      server {
+        listen 8080;
+        location / {
+          proxy_pass http://boiler_api;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "boiler-telemetry.fullname" . }}-nginx
+  labels:
+    {{- include "boiler-telemetry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nginx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "boiler-telemetry.selectorLabels" (dict "component" "nginx" "root" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "boiler-telemetry.selectorLabels" (dict "component" "nginx" "root" .) | nindent 8 }}
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: nginx-conf
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+      volumes:
+        - name: nginx-conf
+          configMap:
+            name: {{ include "boiler-telemetry.fullname" . }}-nginx-conf
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "boiler-telemetry.fullname" . }}-nginx
+  labels:
+    {{- include "boiler-telemetry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nginx
+spec:
+  type: NodePort
+  selector:
+    {{- include "boiler-telemetry.selectorLabels" (dict "component" "nginx" "root" .) | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      nodePort: 30080
+{{- end }}
