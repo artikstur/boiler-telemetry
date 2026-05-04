@@ -1,0 +1,101 @@
+replicaCount:
+  api: 2
+  anomalyService: 2
+  notificationWorker: 2
+
+image:
+  registry: ""           # пустой = локальные образы из minikube
+  pullPolicy: Never      # Never — используем образы загруженные через minikube image load
+
+api:
+  image: app-boiler-telemetry-api:latest
+  port: 8080
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+anomalyService:
+  image: app-anomaly-service:latest
+  port: 8080
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+notificationWorker:
+  image: app-notification-worker:latest
+  port: 8080
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+# ── Redis (bitnami subchart) ──────────────────────────────────────────────────
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: false
+  master:
+    persistence:
+      enabled: false
+
+# ── PostgreSQL (bitnami subchart) ─────────────────────────────────────────────
+postgresql:
+  enabled: true
+  auth:
+    username: postgres
+    password: postgres
+    database: boiler_telemetry
+  primary:
+    persistence:
+      enabled: false
+
+# ── Kafka (bitnami subchart) ──────────────────────────────────────────────────
+kafka:
+  enabled: true
+  replicaCount: 1
+  persistence:
+    enabled: false
+  kraft:
+    enabled: true
+  listeners:
+    client:
+      protocol: PLAINTEXT
+  provisioning:
+    enabled: true
+    topics:
+      - name: telemetry-events
+        partitions: 3
+        replicationFactor: 1
+      - name: anomaly-events
+        partitions: 3
+        replicationFactor: 1
+
+# ── InfluxDB (отдельный манифест, не subchart) ────────────────────────────────
+influxdb:
+  enabled: true
+  image: influxdb:2.7
+  adminToken: dev-token
+  org: boiler-org
+  bucket: telemetry
+  adminUser: admin
+  adminPassword: adminpassword
+
+# ── nginx ingress ─────────────────────────────────────────────────────────────
+nginx:
+  enabled: true
+
+ingress:
+  enabled: true
+  host: boiler-telemetry.local
