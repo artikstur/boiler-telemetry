@@ -1,7 +1,7 @@
 replicaCount:
-  api: 2
-  anomalyService: 2
-  notificationWorker: 2
+  api: 1
+  anomalyService: 1
+  notificationWorker: 1
 
 image:
   registry: ""           # пустой = локальные образы из minikube

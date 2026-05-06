@@ -57,8 +57,8 @@ spec:
           livenessProbe:
             exec:
               command: ['sh', '-c', 'kill -0 1']
-            initialDelaySeconds: 10
+            initialDelaySeconds: 90
             periodSeconds: 15
-            failureThreshold: 3
+            failureThreshold: 5
           resources:
             {{- toYaml .Values.anomalyService.resources | nindent 12 }}
