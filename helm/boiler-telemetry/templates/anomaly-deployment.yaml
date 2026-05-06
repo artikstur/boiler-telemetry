@@ -22,6 +22,15 @@ spec:
         - name: wait-for-redis
           image: busybox:1.36
           command: ['sh', '-c', 'until nc -z redis-master 6379; do echo waiting for redis; sleep 3; done']
+        - name: create-kafka-topics
+          image: confluentinc/cp-kafka:7.5.0
+          command:
+            - sh
+            - -c
+            - |
+              kafka-topics --create --if-not-exists --topic telemetry-events --bootstrap-server kafka-broker:9092 --partitions 3 --replication-factor 1 || true
+              kafka-topics --create --if-not-exists --topic anomaly-events --bootstrap-server kafka-broker:9092 --partitions 3 --replication-factor 1 || true
+              echo "Topics ready"
       containers:
         - name: anomaly-service
           image: {{ .Values.anomalyService.image }}
@@ -43,6 +52,8 @@ spec:
               value: "redis-master:6379"
             - name: ASPNETCORE_ENVIRONMENT
               value: "Production"
+            - name: Elasticsearch__Url
+              value: "http://elasticsearch:9200"
           livenessProbe:
             exec:
               command: ['sh', '-c', 'kill -0 1']

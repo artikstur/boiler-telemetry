@@ -5,6 +5,7 @@ using BoilerTelemetry.Infrastructure;
 using FluentValidation;
 using Serilog;
 using Serilog.Formatting.Compact;
+using Serilog.Sinks.Elasticsearch;
 
 Log.Logger = new LoggerConfiguration()
     .Enrich.FromLogContext()
@@ -13,11 +14,25 @@ Log.Logger = new LoggerConfiguration()
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Host.UseSerilog((ctx, services, cfg) => cfg
-    .ReadFrom.Configuration(ctx.Configuration)
-    .ReadFrom.Services(services)
-    .Enrich.FromLogContext()
-    .WriteTo.Console(new CompactJsonFormatter()));
+builder.Host.UseSerilog((ctx, services, cfg) =>
+{
+    cfg .ReadFrom.Configuration(ctx.Configuration)
+        .ReadFrom.Services(services)
+        .Enrich.FromLogContext()
+        .Enrich.WithProperty("Service", "api")
+        .WriteTo.Console(new CompactJsonFormatter());
+
+    var esUrl = ctx.Configuration["Elasticsearch:Url"];
+    if (!string.IsNullOrEmpty(esUrl))
+        cfg.WriteTo.Elasticsearch(new ElasticsearchSinkOptions(new Uri(esUrl))
+        {
+            AutoRegisterTemplate = true,
+            AutoRegisterTemplateVersion = AutoRegisterTemplateVersion.ESv8,
+            IndexFormat = "boiler-telemetry-{0:yyyy.MM.dd}",
+            BatchAction = ElasticOpType.Create,
+            EmitEventFailure = EmitEventFailureHandling.WriteToSelfLog
+        });
+});
 
 // Infrastructure (PostgreSQL, InfluxDB, Kafka, Redis)
 builder.Services.AddInfrastructure(builder.Configuration);

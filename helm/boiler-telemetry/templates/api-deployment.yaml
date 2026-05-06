@@ -47,6 +47,8 @@ spec:
               value: "telemetry-events"
             - name: ASPNETCORE_ENVIRONMENT
               value: "Production"
+            - name: Elasticsearch__Url
+              value: "http://elasticsearch:9200"
           livenessProbe:
             httpGet:
               path: /health

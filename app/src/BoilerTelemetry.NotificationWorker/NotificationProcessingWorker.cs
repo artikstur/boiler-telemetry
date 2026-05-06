@@ -77,6 +77,11 @@ public class NotificationProcessingWorker : BackgroundService
             {
                 _logger.LogError(ex, "Kafka consume error");
             }
+            catch (OperationCanceledException)
+            {
+                // Normal shutdown - token was cancelled
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error processing notification");
