@@ -1,0 +1,21 @@
+{{- $components := list
+  (dict "name" "api"                  "cfg" .Values.api)
+  (dict "name" "anomaly-service"      "cfg" .Values.anomalyService)
+  (dict "name" "notification-worker"  "cfg" .Values.notificationWorker) -}}
+{{- range $c := $components }}
+{{- if $c.cfg.pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "boiler-telemetry.fullname" $ }}-{{ $c.name }}
+  labels:
+    {{- include "boiler-telemetry.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $c.name }}
+spec:
+  minAvailable: {{ $c.cfg.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "boiler-telemetry.selectorLabels" (dict "component" $c.name "root" $) | nindent 6 }}
+{{- end }}
+{{- end }}

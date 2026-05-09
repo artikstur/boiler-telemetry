@@ -1,0 +1,35 @@
+{{- /*
+ExternalName-сервисы для подключения к БД, которые работают вне кластера
+(в Docker на хосте). В minikube DNS host.minikube.internal указывает на хост.
+В Docker Desktop K8s/kind можно использовать host.docker.internal.
+Хост настраивается через .Values.externalHost.
+*/ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  labels:
+    {{- include "boiler-telemetry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres-external
+spec:
+  type: ExternalName
+  externalName: {{ .Values.externalHost | quote }}
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: influxdb
+  labels:
+    {{- include "boiler-telemetry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: influxdb-external
+spec:
+  type: ExternalName
+  externalName: {{ .Values.externalHost | quote }}
+  ports:
+    - name: http
+      port: 8086
+      targetPort: 8086

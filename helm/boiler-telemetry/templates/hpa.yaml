@@ -1,0 +1,30 @@
+{{- $components := list
+  (dict "name" "api"                  "cfg" .Values.api)
+  (dict "name" "anomaly-service"      "cfg" .Values.anomalyService)
+  (dict "name" "notification-worker"  "cfg" .Values.notificationWorker) -}}
+{{- range $c := $components }}
+{{- if $c.cfg.hpa.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "boiler-telemetry.fullname" $ }}-{{ $c.name }}
+  labels:
+    {{- include "boiler-telemetry.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $c.name }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "boiler-telemetry.fullname" $ }}-{{ $c.name }}
+  minReplicas: {{ $c.cfg.hpa.minReplicas }}
+  maxReplicas: {{ $c.cfg.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $c.cfg.hpa.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- end }}
