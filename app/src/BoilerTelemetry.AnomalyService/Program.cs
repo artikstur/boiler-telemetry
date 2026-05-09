@@ -1,29 +1,42 @@
 using BoilerTelemetry.AnomalyService;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using Serilog;
 using Serilog.Formatting.Compact;
-using Serilog.Sinks.Elasticsearch;
+using Serilog.Sinks.OpenSearch;
 
 var builder = WebApplication.CreateBuilder(args);
+
+var serviceName = builder.Configuration["Otel:ServiceName"] ?? "boiler-telemetry-anomaly";
 
 builder.Host.UseSerilog((ctx, services, cfg) =>
 {
     cfg .ReadFrom.Configuration(ctx.Configuration)
         .ReadFrom.Services(services)
         .Enrich.FromLogContext()
-        .Enrich.WithProperty("Service", "anomaly-service")
+        .Enrich.WithProperty("Service", serviceName)
         .WriteTo.Console(new CompactJsonFormatter());
 
-    var esUrl = ctx.Configuration["Elasticsearch:Url"];
-    if (!string.IsNullOrEmpty(esUrl))
-        cfg.WriteTo.Elasticsearch(new ElasticsearchSinkOptions(new Uri(esUrl))
+    var openSearchUrl = ctx.Configuration["OpenSearch:Url"];
+    if (!string.IsNullOrEmpty(openSearchUrl))
+        cfg.WriteTo.OpenSearch(new OpenSearchSinkOptions(new Uri(openSearchUrl))
         {
-            AutoRegisterTemplate = true,
-            AutoRegisterTemplateVersion = AutoRegisterTemplateVersion.ESv8,
+            AutoRegisterTemplate = false,
             IndexFormat = "boiler-telemetry-{0:yyyy.MM.dd}",
-            BatchAction = ElasticOpType.Create,
             EmitEventFailure = EmitEventFailureHandling.WriteToSelfLog
         });
 });
+
+var otlpEndpoint = builder.Configuration["Otel:Endpoint"];
+if (!string.IsNullOrEmpty(otlpEndpoint))
+{
+    builder.Services.AddOpenTelemetry()
+        .ConfigureResource(r => r.AddService(serviceName))
+        .WithTracing(t => t
+            .AddSource("BoilerTelemetry.AnomalyService")
+            .AddHttpClientInstrumentation()
+            .AddOtlpExporter(o => o.Endpoint = new Uri(otlpEndpoint)));
+}
 
 builder.Services.Configure<AnomalyServiceSettings>(
     builder.Configuration.GetSection("AnomalyService"));

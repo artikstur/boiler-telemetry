@@ -18,19 +18,13 @@ spec:
       initContainers:
         - name: wait-for-postgres
           image: busybox:1.36
-          command: ['sh', '-c', 'until nc -z postgres 5432; do echo waiting for postgres; sleep 3; done']
+          command: ['sh', '-c', 'until nc -z postgres 25432; do echo waiting for external postgres; sleep 3; done']
         - name: wait-for-kafka
           image: busybox:1.36
-          command: ['sh', '-c', 'until nc -z kafka-broker 9092; do echo waiting for kafka-broker; sleep 3; done']
-        - name: create-kafka-topics
-          image: confluentinc/cp-kafka:7.5.0
-          command:
-            - sh
-            - -c
-            - |
-              kafka-topics --create --if-not-exists --topic telemetry-events --bootstrap-server kafka-broker:9092 --partitions 3 --replication-factor 1 || true
-              kafka-topics --create --if-not-exists --topic anomaly-events --bootstrap-server kafka-broker:9092 --partitions 3 --replication-factor 1 || true
-              echo "Topics ready"
+          command: ['sh', '-c', 'until nc -z kafka 9092; do echo waiting for kafka; sleep 3; done']
+        - name: wait-for-topics
+          image: apache/kafka:3.7.0
+          command: ['sh', '-c', 'until /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --describe --topic anomaly-events >/dev/null 2>&1; do echo waiting for topic anomaly-events; sleep 3; done']
       containers:
         - name: notification-worker
           image: {{ .Values.notificationWorker.image }}
@@ -39,21 +33,25 @@ spec:
             - containerPort: {{ .Values.notificationWorker.port }}
           env:
             - name: ConnectionStrings__PostgreSQL
-              value: "Host=postgres;Port=5432;Database=boiler_telemetry;Username=postgres;Password=postgres"
+              value: "Host={{ .Values.externalDatabases.postgres.host }};Port={{ .Values.externalDatabases.postgres.port }};Database={{ .Values.externalDatabases.postgres.database }};Username={{ .Values.externalDatabases.postgres.user }};Password={{ .Values.externalDatabases.postgres.password }}"
             - name: NotificationWorker__BootstrapServers
-              value: "kafka-broker:9092"
+              value: "kafka:9092"
             - name: NotificationWorker__ConsumerGroup
               value: "notification-worker-group"
             - name: NotificationWorker__InputTopic
               value: "anomaly-events"
             - name: ASPNETCORE_ENVIRONMENT
               value: "Production"
-            - name: Elasticsearch__Url
-              value: "http://elasticsearch:9200"
+            - name: OpenSearch__Url
+              value: "http://opensearch:9200"
+            - name: Otel__Endpoint
+              value: "http://jaeger:4317"
+            - name: Otel__ServiceName
+              value: "boiler-telemetry-notification"
           livenessProbe:
             exec:
               command: ['sh', '-c', 'kill -0 1']
-            initialDelaySeconds: 90
+            initialDelaySeconds: 30
             periodSeconds: 15
             failureThreshold: 5
           resources:

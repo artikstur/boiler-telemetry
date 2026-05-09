@@ -18,19 +18,13 @@ spec:
       initContainers:
         - name: wait-for-kafka
           image: busybox:1.36
-          command: ['sh', '-c', 'until nc -z kafka-broker 9092; do echo waiting for kafka-broker; sleep 3; done']
+          command: ['sh', '-c', 'until nc -z kafka 9092; do echo waiting for kafka; sleep 3; done']
         - name: wait-for-redis
           image: busybox:1.36
-          command: ['sh', '-c', 'until nc -z redis-master 6379; do echo waiting for redis; sleep 3; done']
-        - name: create-kafka-topics
-          image: confluentinc/cp-kafka:7.5.0
-          command:
-            - sh
-            - -c
-            - |
-              kafka-topics --create --if-not-exists --topic telemetry-events --bootstrap-server kafka-broker:9092 --partitions 3 --replication-factor 1 || true
-              kafka-topics --create --if-not-exists --topic anomaly-events --bootstrap-server kafka-broker:9092 --partitions 3 --replication-factor 1 || true
-              echo "Topics ready"
+          command: ['sh', '-c', 'until nc -z redis 6379; do echo waiting for redis; sleep 3; done']
+        - name: wait-for-topics
+          image: apache/kafka:3.7.0
+          command: ['sh', '-c', 'until /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --describe --topic telemetry-events >/dev/null 2>&1 && /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --describe --topic anomaly-events >/dev/null 2>&1; do echo waiting for topics; sleep 3; done']
       containers:
         - name: anomaly-service
           image: {{ .Values.anomalyService.image }}
@@ -41,7 +35,7 @@ spec:
             - name: CrudApiBaseUrl
               value: "http://{{ include "boiler-telemetry.fullname" . }}-api:8080"
             - name: AnomalyService__BootstrapServers
-              value: "kafka-broker:9092"
+              value: "kafka:9092"
             - name: AnomalyService__ConsumerGroup
               value: "anomaly-service-group"
             - name: AnomalyService__InputTopic
@@ -49,15 +43,19 @@ spec:
             - name: AnomalyService__OutputTopic
               value: "anomaly-events"
             - name: ConnectionStrings__Redis
-              value: "redis-master:6379"
+              value: "redis:6379"
             - name: ASPNETCORE_ENVIRONMENT
               value: "Production"
-            - name: Elasticsearch__Url
-              value: "http://elasticsearch:9200"
+            - name: OpenSearch__Url
+              value: "http://opensearch:9200"
+            - name: Otel__Endpoint
+              value: "http://jaeger:4317"
+            - name: Otel__ServiceName
+              value: "boiler-telemetry-anomaly"
           livenessProbe:
             exec:
               command: ['sh', '-c', 'kill -0 1']
-            initialDelaySeconds: 90
+            initialDelaySeconds: 30
             periodSeconds: 15
             failureThreshold: 5
           resources:

@@ -1,11 +1,15 @@
+# Хост, на котором крутится Docker с БД (postgres + influxdb).
+# Для minikube это host.minikube.internal, для Docker Desktop K8s — host.docker.internal.
+externalHost: host.minikube.internal
+
 replicaCount:
-  api: 1
-  anomalyService: 1
-  notificationWorker: 1
+  api: 2
+  anomalyService: 2
+  notificationWorker: 2
 
 image:
-  registry: ""           # пустой = локальные образы из minikube
-  pullPolicy: Never      # Never — используем образы загруженные через minikube image load
+  registry: ""           # пусто = локальные образы из minikube
+  pullPolicy: IfNotPresent
 
 api:
   image: app-boiler-telemetry-api:latest
@@ -13,10 +17,18 @@ api:
   resources:
     requests:
       cpu: "100m"
-      memory: "128Mi"
+      memory: "192Mi"
     limits:
       cpu: "500m"
       memory: "512Mi"
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: true
+    minAvailable: 1
 
 anomalyService:
   image: app-anomaly-service:latest
@@ -24,10 +36,18 @@ anomalyService:
   resources:
     requests:
       cpu: "100m"
-      memory: "128Mi"
+      memory: "192Mi"
     limits:
       cpu: "500m"
       memory: "512Mi"
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: true
+    minAvailable: 1
 
 notificationWorker:
   image: app-notification-worker:latest
@@ -35,10 +55,32 @@ notificationWorker:
   resources:
     requests:
       cpu: "100m"
-      memory: "128Mi"
+      memory: "192Mi"
     limits:
       cpu: "500m"
       memory: "512Mi"
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+# ── Подключение к БД (хостится снаружи в Docker) ──────────────────────────────
+externalDatabases:
+  postgres:
+    host: postgres   # ExternalName-сервис → externalHost
+    port: 25432
+    database: boiler_telemetry
+    user: postgres
+    password: postgres
+  influx:
+    url: http://influxdb:28086
+    token: dev-token
+    org: boiler-org
+    bucket: telemetry
 
 # ── Redis (bitnami subchart) ──────────────────────────────────────────────────
 redis:
@@ -50,16 +92,9 @@ redis:
     persistence:
       enabled: false
 
-# ── PostgreSQL (bitnami subchart) ─────────────────────────────────────────────
+# ── PostgreSQL subchart выключен — БД вынесена наружу ─────────────────────────
 postgresql:
-  enabled: true
-  auth:
-    username: postgres
-    password: postgres
-    database: boiler_telemetry
-  primary:
-    persistence:
-      enabled: false
+  enabled: false
 
 # ── Kafka (bitnami subchart) ──────────────────────────────────────────────────
 kafka:
@@ -82,15 +117,53 @@ kafka:
         partitions: 3
         replicationFactor: 1
 
-# ── InfluxDB (отдельный манифест, не subchart) ────────────────────────────────
-influxdb:
+# ── OpenSearch — централизованное хранилище логов ────────────────────────────
+opensearch:
   enabled: true
-  image: influxdb:2.7
-  adminToken: dev-token
-  org: boiler-org
-  bucket: telemetry
-  adminUser: admin
-  adminPassword: adminpassword
+  image: opensearchproject/opensearch:2.15.0
+  javaOpts: "-Xms512m -Xmx512m"
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "768Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
+opensearchDashboards:
+  enabled: true
+  image: opensearchproject/opensearch-dashboards:2.15.0
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "384Mi"
+    limits:
+      cpu: "500m"
+      memory: "768Mi"
+
+# ── Jaeger — трейсинг ─────────────────────────────────────────────────────────
+jaeger:
+  enabled: true
+  image: jaegertracing/all-in-one:1.60
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+# ── Grafana — единый UI для логов (OpenSearch) и трейсов (Jaeger) ───────────
+grafana:
+  enabled: true
+  image: grafana/grafana:11.2.0
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "192Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
 
 # ── nginx ingress ─────────────────────────────────────────────────────────────
 nginx:

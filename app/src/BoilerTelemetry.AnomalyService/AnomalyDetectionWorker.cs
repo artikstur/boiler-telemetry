@@ -39,6 +39,10 @@ public class AnomalyDetectionWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Уступаем поток host startup'у, иначе блокирующий consumer.Consume()
+        // не даст Kestrel открыть /health endpoint на 8080.
+        await Task.Yield();
+
         var consumerConfig = new ConsumerConfig
         {
             BootstrapServers = _settings.BootstrapServers,
