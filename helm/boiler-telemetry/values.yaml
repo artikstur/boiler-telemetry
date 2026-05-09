@@ -153,6 +153,18 @@ jaeger:
       cpu: "500m"
       memory: "512Mi"
 
+# ── Kafka UI — браузер топиков, сообщений, групп консьюмеров ─────────────
+kafkaUi:
+  enabled: true
+  image: provectuslabs/kafka-ui:latest
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
 # ── Grafana — единый UI для логов (OpenSearch) и трейсов (Jaeger) ───────────
 grafana:
   enabled: true

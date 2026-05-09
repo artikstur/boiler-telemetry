@@ -1,0 +1,175 @@
+{
+  "info": {
+    "name": "Boiler Telemetry",
+    "description": "Тестовые сценарии для системы мониторинга бойлеров. Перед запуском подними port-forward:\n\n```powershell\nkubectl port-forward -n boiler svc/boiler-nginx 18080:8080\n```\n\nЛибо подмени переменную {{baseUrl}} на http://<minikube-ip>:30080.\n\nПорядок запуска:\n1. Health check\n2. Create boiler — сохранит {{boilerId}} в env\n3. Список бойлеров\n4. Get by id\n5. Send normal telemetry — без аномалии\n6. Send anomaly telemetry — будет 2 аномалии (temp+pressure)\n7. Get history — показания из InfluxDB\n8. Update boiler\n9. Delete boiler",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:18080", "type": "string" },
+    { "key": "boilerId", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "0. Health check",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] }
+      }
+    },
+    {
+      "name": "1. Create boiler",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('201 Created', () => pm.response.to.have.status(201));",
+              "const data = pm.response.json();",
+              "pm.collectionVariables.set('boilerId', data.id);",
+              "console.log('Saved boilerId =', data.id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Boiler-1\",\n  \"location\": \"Workshop-2\",\n  \"temperatureThreshold\": 85,\n  \"pressureThreshold\": 10\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/api/v1/boilers", "host": ["{{baseUrl}}"], "path": ["api", "v1", "boilers"] }
+      }
+    },
+    {
+      "name": "2. List boilers",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{baseUrl}}/api/v1/boilers", "host": ["{{baseUrl}}"], "path": ["api", "v1", "boilers"] }
+      }
+    },
+    {
+      "name": "3. Get boiler by id",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/boilers/{{boilerId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "boilers", "{{boilerId}}"]
+        }
+      }
+    },
+    {
+      "name": "4. Send normal telemetry (no anomaly)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('nowIso', new Date().toISOString());"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"boilerId\": \"{{boilerId}}\",\n  \"temperature\": 75,\n  \"pressure\": 8,\n  \"timestamp\": \"{{nowIso}}\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/api/v1/telemetry", "host": ["{{baseUrl}}"], "path": ["api", "v1", "telemetry"] }
+      }
+    },
+    {
+      "name": "5. Send anomaly telemetry (95C / 12bar)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": ["pm.collectionVariables.set('nowIso', new Date().toISOString());"]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"boilerId\": \"{{boilerId}}\",\n  \"temperature\": 95,\n  \"pressure\": 12,\n  \"timestamp\": \"{{nowIso}}\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/api/v1/telemetry", "host": ["{{baseUrl}}"], "path": ["api", "v1", "telemetry"] }
+      },
+      "description": "Аномалия: temperature=95 > 85, pressure=12 > 10. Через ~1 сек в Kafka появятся 2 anomaly_events, NotificationWorker запишет 2 строки в `notifications` (PostgreSQL). Можно проверить:\n```\ndocker exec boiler-postgres psql -U postgres -d boiler_telemetry -c \"SELECT * FROM notifications ORDER BY created_at DESC LIMIT 5;\"\n```"
+    },
+    {
+      "name": "6. Get telemetry history (last hour)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('to',   new Date().toISOString());",
+              "pm.collectionVariables.set('from', new Date(Date.now() - 3600 * 1000).toISOString());"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/telemetry/{{boilerId}}?from={{from}}&to={{to}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "telemetry", "{{boilerId}}"],
+          "query": [
+            { "key": "from", "value": "{{from}}" },
+            { "key": "to",   "value": "{{to}}" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "7. Update boiler",
+      "request": {
+        "method": "PUT",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Boiler-1-renamed\",\n  \"location\": \"Workshop-3\",\n  \"temperatureThreshold\": 90,\n  \"pressureThreshold\": 12\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/boilers/{{boilerId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "boilers", "{{boilerId}}"]
+        }
+      }
+    },
+    {
+      "name": "8. Delete boiler",
+      "request": {
+        "method": "DELETE",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/boilers/{{boilerId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "boilers", "{{boilerId}}"]
+        }
+      }
+    },
+    {
+      "name": "9. Bad request — невалидный body (для проверки 400)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"\",\n  \"location\": \"\",\n  \"temperatureThreshold\": -1,\n  \"pressureThreshold\": 0\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/api/v1/boilers", "host": ["{{baseUrl}}"], "path": ["api", "v1", "boilers"] }
+      }
+    }
+  ]
+}
