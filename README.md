@@ -1,6 +1,65 @@
-# Product Vision
+# Boiler Telemetry
 
-Система мониторинга и оповещения о состоянии бойлеров
+Система мониторинга и оповещения о состоянии бойлеров: телеметрия → InfluxDB + Kafka → детекция аномалий → уведомления.
+
+## 🚀 Быстрый запуск (Linux + minikube)
+
+Один раз на свежей VM:
+```bash
+./bootstrap.sh        # ставит docker, minikube, kubectl, helm, make
+```
+
+Полный деплой одной командой:
+```bash
+make up
+```
+
+`make up` поднимает Postgres+InfluxDB в Docker (вне k8s), стартует minikube, собирает 3 .NET-образа и заливает их в minikube, ставит Helm-чарт (API + AnomalyService + NotificationWorker по 2 реплики, Kafka, Redis, OpenSearch + Dashboards, Jaeger, Prometheus, Grafana, Kafka UI), поднимает port-forward'ы на UI и печатает URL'ы.
+
+## 📋 Команды
+
+```bash
+make status          # поды, реплики, HPA, состояние БД
+make ports           # перепустить port-forward'ы и распечатать URL
+make ports-stop      # прибить port-forward'ы
+make logs SVC=api    # логи (api / anomaly-service / notification-worker / nginx / kafka / opensearch / grafana / prometheus / jaeger / kafka-ui)
+make reload-images   # пересобрать образы и перезапустить деплои
+make reset-grafana   # сбросить пароль Grafana к admin/admin
+make down            # снести релиз и БД (volumes остаются)
+make clean           # снести всё включая volumes и minikube
+make help            # список целей
+```
+
+## 🌐 UI
+
+После `make up` (или `make ports`) открывай:
+
+| URL                       | Сервис                  | Креды             |
+|---------------------------|-------------------------|-------------------|
+| http://localhost:18080    | API                     | —                 |
+| http://localhost:3000     | Grafana                 | `admin` / `admin` |
+| http://localhost:5601     | OpenSearch Dashboards   | —                 |
+| http://localhost:16686    | Jaeger UI               | —                 |
+| http://localhost:8085     | Kafka UI                | —                 |
+| http://localhost:9090     | Prometheus              | —                 |
+| http://localhost:28086    | InfluxDB UI             | `admin` / `adminpassword` |
+
+Подробности (что в каком UI смотреть, KQL-фильтры, примеры PromQL) — в **`ACCESS.md`**.
+
+## 🧪 Postman
+
+Импортируй `boiler-telemetry.postman_collection.json` — 10 запросов: CRUD бойлера, нормальная и аномальная телеметрия, история, валидация. Запросы используют `http://localhost:18080`.
+
+## 📐 Архитектура
+
+- **3 сервиса .NET 8** в k8s по 2 реплики, HPA до 4–6, PDB minAvailable=1.
+- **PostgreSQL + InfluxDB** работают в Docker на хосте (`infra/databases/docker-compose.yml`). Внутри кластера ExternalName-сервисы `postgres` и `influxdb` резолвятся в `host.minikube.internal`.
+- **Kafka** (apache/kafka 3.7 в KRaft mode), **Redis** — в k8s.
+- **Observability**: OpenSearch+Dashboards (логи через Serilog), Jaeger (трейсы через OpenTelemetry OTLP), Prometheus (метрики через prometheus-net), Grafana (3 datasource + готовый дашборд `Boiler Telemetry — Overview` через provisioning).
+
+Полный набор требований и use cases — ниже в этом файле.
+
+---
 
 ### 1. Видение продукта 
 
