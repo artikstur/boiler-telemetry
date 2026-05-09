@@ -1,77 +1,108 @@
 # UI и доступы
 
-`<minikube-ip>` — узнай через `minikube ip` (обычно `192.168.49.2`).
+## ⚡ Быстрый старт
 
-## 🌐 Веб-интерфейсы (NodePort на minikube)
+Запусти один скрипт — он поднимет port-forward'ы на все UI:
 
-| Сервис                  | URL                                  | Креды             | Что показывает                                            |
-|-------------------------|--------------------------------------|-------------------|------------------------------------------------------------|
-| **API (через nginx)**   | `http://<minikube-ip>:30080`         | —                 | Endpoints `/health`, `/api/v1/boilers`, `/api/v1/telemetry`, Swagger недоступен (Production) |
-| **Grafana**             | `http://<minikube-ip>:30300`         | `admin` / `admin` | Логи (datasource OpenSearch) и трейсы (datasource Jaeger). Anonymous режим = Viewer |
-| **OpenSearch Dashboards** | `http://<minikube-ip>:30601`       | без авторизации   | Просмотр и поиск логов всех сервисов в индексе `boiler-telemetry-*` |
-| **Jaeger UI**           | `http://<minikube-ip>:30686`         | без авторизации   | Распределённые трейсы запросов через api → anomaly → notification |
-| **Kafka UI**            | `http://<minikube-ip>:30808`         | без авторизации   | Топики (`telemetry-events`, `anomaly-events`), сообщения, группы консьюмеров |
+```powershell
+.\scripts\04-port-forward.ps1
+```
 
-## 💾 Базы данных (Docker на хосте, доступны напрямую)
+После этого открывай в браузере:
 
-| Сервис      | Адрес              | Креды                                     | Что внутри                                |
-|-------------|--------------------|-------------------------------------------|--------------------------------------------|
-| **PostgreSQL** | `localhost:25432`  | user `postgres`, pass `postgres`, db `boiler_telemetry` | Таблицы `boilers`, `notifications`         |
-| **InfluxDB**   | `http://localhost:28086` | user `admin`, pass `adminpassword`, **token `dev-token`**, org `boiler-org`, bucket `telemetry` | Точки телеметрии (temperature, pressure)   |
+| Сервис                     | URL                       | Креды                                | Что внутри                                                |
+|----------------------------|---------------------------|--------------------------------------|------------------------------------------------------------|
+| **API (через nginx)**      | http://localhost:18080    | —                                    | `/health`, `/api/v1/boilers`, `/api/v1/telemetry`          |
+| **OpenSearch Dashboards**  | http://localhost:5601     | без авторизации                      | Логи всех сервисов                                         |
+| **Grafana**                | http://localhost:3000     | `admin` / `admin`                    | Логи (через OpenSearch datasource) и трейсы (Jaeger)       |
+| **Jaeger UI**              | http://localhost:16686    | без авторизации                      | Распределённые трейсы запросов                             |
+| **Kafka UI**               | http://localhost:8085     | без авторизации                      | Топики, сообщения, группы консьюмеров                      |
+| **InfluxDB UI** (на хосте) | http://localhost:28086    | `admin` / `adminpassword`            | Точки телеметрии, токен `dev-token`                        |
+| **PostgreSQL** (на хосте)  | `localhost:25432`         | `postgres` / `postgres` / `boiler_telemetry` | Таблицы `boilers`, `notifications`                  |
 
-InfluxDB также имеет **встроенный UI** — открой `http://localhost:28086` в браузере, логинься `admin` / `adminpassword`. Перейди в Data Explorer → bucket `telemetry` → measurement `boiler_readings`.
+> ⚠️ **Важно:** на Windows с minikube driver=docker, NodePort'ы НЕ доступны по `minikube ip` — это особенность Docker Desktop. Только через port-forward (что и делает скрипт выше). Не трать время на попытки открыть `http://192.168.49.2:30601` из браузера — не получится.
 
-PostgreSQL смотрим через `psql`:
+## 📊 OpenSearch Dashboards: первая настройка
+
+При первом открытии http://localhost:5601 → Discover будет говорить "Create index pattern". **Это нужно сделать один раз руками** (через API не работает из-за изоляции workspace в 2.x):
+
+1. Слева **☰ → Stack Management → Index patterns** (или прямо в Discover нажми **Create index pattern**)
+2. Index pattern name: `boiler-telemetry-*` → **Next step**
+3. Time field: `@timestamp` → **Create index pattern**
+4. Слева **☰ → Discover** — теперь видны логи
+
+В правом верхнем углу подкрути диапазон времени — по умолчанию там **Last 15 minutes**, ставь **Last 1 hour** или **Last 24 hours**.
+
+Полезные фильтры в строке поиска (KQL):
+- `Service: "boiler-telemetry-api"` — только API
+- `Service: "boiler-telemetry-anomaly"` — только anomaly worker
+- `@l: "Error"` — только ошибки
+- `@mt: "Anomaly detected*"` — только события обнаружения аномалий
+
+## 📈 Grafana: первая настройка
+
+http://localhost:3000 → `admin` / `admin`
+
+Если admin/admin не работает (бывает после `helm upgrade`), сбрось:
+```powershell
+.\scripts\05-reset-grafana-admin.ps1
+```
+
+При первом входе предложит сменить пароль — нажми **Skip**.
+
+Datasources уже настроены автоматически (OpenSearch + Jaeger). Слева **☰ → Connections → Data sources** — должно быть 2 шт.
+
+Просмотр логов:
+- Слева **☰ → Explore** → datasource **OpenSearch-Logs** → query field оставь `*` → нажми **Run query** (или Shift+Enter)
+
+Просмотр трейсов:
+- **Explore** → datasource **Jaeger-Traces** → query type **Search** → service `boiler-telemetry-api` → **Run query**
+
+## 🔍 Jaeger UI
+
+http://localhost:16686
+
+1. В выпадашке **Service** выбери `boiler-telemetry-api`
+2. **Find Traces**
+3. Кликни на трейс — увидишь полный путь запроса с временами
+
+Сервисы в Jaeger:
+- `boiler-telemetry-api` — входящие HTTP запросы + исходящие в Postgres/Influx/Kafka
+- `boiler-telemetry-anomaly` — HTTP-вызовы AnomalyService → API за бойлером
+- `boiler-telemetry-notification` — HTTP-вызовы NotificationWorker
+
+## 🟪 Kafka UI
+
+http://localhost:8085
+
+1. **Brokers** — должно показать 1 брокер `kafka:9092`.
+2. **Topics**:
+   - `telemetry-events` — все показания датчиков (~3 partition'а)
+   - `anomaly-events` — только аномалии
+3. Кликни по топику → **Messages** → **Live mode** для real-time просмотра.
+4. **Consumers**:
+   - `anomaly-service-group` (потребляет `telemetry-events`)
+   - `notification-worker-group` (потребляет `anomaly-events`)
+
+## 💾 Прямой доступ к БД
+
+PostgreSQL — через `psql` в контейнере:
 ```powershell
 docker exec -it boiler-postgres psql -U postgres -d boiler_telemetry
-\dt                                  -- список таблиц
+
+# В psql:
+\dt                                         -- список таблиц
 SELECT * FROM boilers;
 SELECT * FROM notifications ORDER BY created_at DESC LIMIT 20;
 \q
 ```
 
-Или через любой GUI-клиент (DBeaver, pgAdmin) — host `localhost`, port `25432`.
+Или GUI-клиентом (DBeaver, pgAdmin) — host `localhost`, port `25432`, user `postgres`, pass `postgres`, db `boiler_telemetry`.
 
-## 🛠 Доступ к API локально
-
-NodePort `30080` доступен только когда minikube driver=docker используется на Mac/Linux. На Windows проще через port-forward:
-
-```powershell
-$env:Path = "$env:LOCALAPPDATA\bin;$env:Path"
-kubectl port-forward -n boiler svc/boiler-nginx 18080:8080
-```
-
-После этого все запросы Postman-коллекции работают по `http://localhost:18080`.
-
-## 🔍 Что искать в каждом UI
-
-### Kafka UI (http://`<ip>`:30808)
-1. Brokers — должно показать 1 брокер `kafka:9092`.
-2. Topics:
-   - `telemetry-events` — все показания датчиков (нормальные + аномальные)
-   - `anomaly-events` — только аномалии
-   - Кликни по топику → "Messages" → "Live mode" чтобы видеть события в реальном времени.
-3. Consumers:
-   - `anomaly-service-group` (читает telemetry-events)
-   - `notification-worker-group` (читает anomaly-events)
-
-### OpenSearch Dashboards (http://`<ip>`:30601)
-1. При первом запуске → "Explore on my own".
-2. Слева → **Discover**.
-3. Создать index pattern: `boiler-telemetry-*` → time field `@timestamp` → Create.
-4. Готово — увидишь поток логов от всех 3 сервисов. Фильтр `Service: "boiler-telemetry-anomaly"` покажет только anomaly worker.
-
-### Jaeger UI (http://`<ip>`:30686)
-1. В выпадашке Service выбери `boiler-telemetry-api`.
-2. Find Traces.
-3. Кликни на трейс — увидишь полный путь запроса: API → внутренние HTTP-вызовы → ответ. Anomaly Service и Notification Worker появляются в трейсах когда обращаются к API за бойлером (через CrudApi HttpClient).
-
-### Grafana (http://`<ip>`:30300)
-1. Логин `admin`/`admin`, при входе предложит сменить пароль (можно пропустить — Skip).
-2. Слева → **Connections → Data sources** — должны быть `OpenSearch-Logs` и `Jaeger-Traces`.
-3. Слева → **Explore**:
-   - Datasource `OpenSearch-Logs` → выбрать индекс `boiler-telemetry-*` → ввести поиск (например, `"anomaly"`)
-   - Datasource `Jaeger-Traces` → query type "Search" → service `boiler-telemetry-api`
+InfluxDB — через UI (`http://localhost:28086`):
+1. Login `admin` / `adminpassword`
+2. **Data Explorer** → bucket `telemetry` → measurement `boiler_readings`
+3. Submit — увидишь графики temperature/pressure
 
 ## 🔧 Полезные команды
 
@@ -79,15 +110,38 @@ kubectl port-forward -n boiler svc/boiler-nginx 18080:8080
 # Все поды
 kubectl get pods -n boiler
 
-# Логи api в реальном времени
+# Логи API в реальном времени
 kubectl logs -n boiler -l app.kubernetes.io/component=api --tail=20 -f
 
-# HPA
+# HPA (показывает текущую нагрузку CPU)
 kubectl get hpa -n boiler
 
-# Топики Kafka
+# Топики Kafka из консоли
 kubectl exec -n boiler deploy/kafka -- /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list
 
 # Прочитать сообщения из топика (Ctrl+C для выхода)
-kubectl exec -n boiler deploy/kafka -- /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:9092 --topic telemetry-events --from-beginning
+kubectl exec -n boiler deploy/kafka -- /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:9092 --topic telemetry-events --from-beginning --max-messages 10
+
+# Проверка trip Postgres → API
+docker exec boiler-postgres psql -U postgres -d boiler_telemetry -c "SELECT count(*) FROM notifications;"
+
+# Прибить все port-forward'ы
+Get-Process kubectl | Stop-Process -Force
 ```
+
+## 🧪 Прогон сценария end-to-end
+
+1. Запусти port-forward'ы: `.\scripts\04-port-forward.ps1`
+2. Импортируй в Postman: **`boiler-telemetry.postman_collection.json`**
+3. Прогоняй запросы 1→9 по порядку:
+   - 1 — Health
+   - 2 — Create boiler (сохранит `boilerId` в переменную коллекции)
+   - 4 — нормальная телеметрия
+   - 5 — **аномальная телеметрия** (95C/12bar)
+4. Открой Kafka UI → топик `anomaly-events` → Messages — увидишь новое сообщение
+5. Открой OpenSearch Dashboards → Discover — увидишь логи `Anomaly detected`
+6. Проверь PostgreSQL:
+   ```powershell
+   docker exec boiler-postgres psql -U postgres -d boiler_telemetry -c "SELECT * FROM notifications ORDER BY created_at DESC LIMIT 5;"
+   ```
+7. Открой Jaeger UI → service `boiler-telemetry-api` → Find Traces → выбери последний и посмотри как запрос растёкся.

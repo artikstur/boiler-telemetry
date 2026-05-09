@@ -118,24 +118,62 @@ opensearch-dashboards-...       1/1
 redis-...                       1/1
 ```
 
-## 6. Проверка что всё работает
+## 6. Открытие UI в браузере (port-forward)
 
-См. `ACCESS.md` — там URL и креды для Grafana, OpenSearch Dashboards, Jaeger UI и API.
+⚠️ На Windows с minikube driver=docker, NodePort'ы НЕ доступны по `minikube ip` из браузера — это особенность Docker Desktop. Поэтому пробрасываем порты на localhost:
 
-Быстрая проверка из консоли:
 ```powershell
-$env:Path = "$env:LOCALAPPDATA\bin;$env:Path"
-Start-Process kubectl -ArgumentList 'port-forward','-n','boiler','svc/boiler-nginx','18080:8080' -WindowStyle Hidden
-Start-Sleep 3
+.\scripts\04-port-forward.ps1
+```
+
+Скрипт поднимет в фоне 5 port-forward'ов и распечатает URL'ы. После этого:
+
+| URL                    | Сервис                   | Креды             |
+|------------------------|--------------------------|-------------------|
+| http://localhost:18080 | API (через nginx)        | —                 |
+| http://localhost:5601  | OpenSearch Dashboards    | —                 |
+| http://localhost:3000  | Grafana                  | `admin` / `admin` |
+| http://localhost:16686 | Jaeger UI                | —                 |
+| http://localhost:8085  | Kafka UI                 | —                 |
+| http://localhost:28086 | InfluxDB UI (на хосте)   | `admin`/`adminpassword` |
+
+Подробности про каждый UI и инструкции что в нём смотреть — в `ACCESS.md`.
+
+### 6.1 Первая настройка OpenSearch Dashboards (один раз)
+
+При первом открытии Discover будет пусто. Создай index pattern руками:
+1. Слева **☰ → Stack Management → Index patterns** → **Create index pattern**
+2. Pattern: `boiler-telemetry-*` → Next
+3. Time field: `@timestamp` → **Create**
+4. Иди в **Discover**, выбери временной диапазон **Last 1 hour** в правом верхнем углу.
+
+### 6.2 Если Grafana admin/admin не работает
+
+Бывает после повторного `helm upgrade`. Сбрось пароль:
+```powershell
+.\scripts\05-reset-grafana-admin.ps1
+```
+
+## 7. Прогон сценария
+
+```powershell
+# Health
 Invoke-RestMethod http://localhost:18080/health
 # -> Healthy
 ```
 
-Дальше используй Postman-коллекцию `boiler-telemetry.postman_collection.json` для прогонки сценариев (создание бойлера, отправка телеметрии, проверка истории, аномалии).
+Импортируй в Postman: `boiler-telemetry.postman_collection.json` — там 10 запросов (создание бойлера, телеметрия нормальная и аномальная, история, валидация). Прогоняй по порядку 1→9.
 
-## 7. Полный сброс
+После запроса 5 (аномалия) проверь:
+- Kafka UI → топик `anomaly-events` → Messages
+- OpenSearch Dashboards → Discover → фильтр `@mt: "Anomaly detected*"`
+- PostgreSQL: `docker exec boiler-postgres psql -U postgres -d boiler_telemetry -c "SELECT * FROM notifications ORDER BY created_at DESC LIMIT 5;"`
+- Jaeger UI → service `boiler-telemetry-api` → Find Traces
+
+## 8. Полный сброс
 
 ```powershell
+Get-Process kubectl | Stop-Process -Force                      # прибить port-forward'ы
 helm uninstall boiler -n boiler
 kubectl delete namespace boiler
 docker compose -f infra\databases\docker-compose.yml down -v   # -v снесёт данные БД
