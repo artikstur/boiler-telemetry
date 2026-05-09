@@ -185,8 +185,8 @@ make help            # список целей
 
 # С4 диаграмма
 
-![c4 diagram](diagrams/c4.png)
-![c4 diagram 2](diagrams/c4_2.png)
+![c4 diagram](diagrams/c4.jpg)
+![c4 diagram 2](diagrams/c4_2.jpg)
 
 ## Test cases
 
