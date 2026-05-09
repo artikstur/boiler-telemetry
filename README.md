@@ -190,9 +190,79 @@ make help            # список целей
 
 ## Test cases
 
-![module1](test_cases/module1.png)
-![module2](test_cases/module2.png)
-![module3](test_cases/module3.png)
-![module4](test_cases/module4.png)
-![module5](test_cases/module5.png)
+# Модуль 1 — BoilerService (сервис управления котлами)
 
+| ID | Название теста | Описание |
+|---|---|---|
+| TC-01 | GetById — котёл найден | Репозиторий возвращает котёл с указанным ID → метод возвращает DTO с корректным ID, именем и пороговыми значениями |
+| TC-02 | GetById — котёл не найден | Репозиторий возвращает null → метод возвращает null |
+| TC-03 | GetAll — список всех котлов | Репозиторий содержит 2 котла → возвращается список из 2 DTO с корректными именами |
+| TC-04 | Create — уникальное имя | Имя котла не занято (ExistsByName = false) → котёл создаётся; IsActive = true; DTO содержит все переданные поля |
+| TC-05 | Create — дубликат имени (исключение) | Котёл с таким именем уже существует (ExistsByName = true) → выбрасывается InvalidOperationException с упоминанием имени |
+| TC-06 | Create — дубликат, запись не создаётся | ExistsByName = true → метод CreateAsync репозитория не вызывается ни разу |
+| TC-07 | Update — частичное обновление полей | Переданы только Name и TemperatureThreshold → обновляются только они; Location и PressureThreshold остаются прежними |
+| TC-08 | Update — котёл не найден | GetById возвращает null → метод возвращает null; UpdateAsync репозитория не вызывается |
+| TC-09 | Delete — котёл найден | Котёл существует → возвращается true; DeleteAsync вызывается ровно один раз |
+| TC-10 | Delete — котёл не найден | GetById возвращает null → возвращается false; DeleteAsync не вызывается |
+
+---
+
+# Модуль 2 — TelemetryService (сервис телеметрии)
+
+| ID | Название теста | Описание |
+|---|---|---|
+| TC-11 | IngestAsync — вызываются оба компонента | Поступает показание телеметрии → WriteAsync (InfluxDB) и PublishAsync (Kafka) вызываются по одному разу каждый |
+| TC-12 | IngestAsync — корректные данные в репозиторий | BoilerId=X, температура=75, давление=8 → в репозиторий передаётся запись с теми же значениями BoilerId, Temperature, Pressure |
+| TC-13 | IngestAsync — корректные данные в Kafka | BoilerId=X, температура=95 → в Kafka публикуется запись с тем же BoilerId и значением температуры |
+| TC-14 | GetHistoryAsync — возвращаются корректные DTO | InfluxDB содержит 2 показания за период → возвращается список из 2 DTO с соответствующими температурами и давлениями |
+| TC-15 | GetHistoryAsync — нет данных за период | InfluxDB возвращает пустой список → метод возвращает пустой список без исключений |
+| TC-16 | GetHistoryAsync — параметры переданы верно | Запрос с boilerId=X, from=T1, to=T2 → QueryAsync репозитория вызывается ровно с этими тремя параметрами |
+
+---
+
+# Модуль 3 — CreateBoilerValidator (валидатор создания котла)
+
+| ID | Название теста | Описание |
+|---|---|---|
+| TC-17 | Все поля корректны | Name="Boiler-1", Location="Room", TemperatureThreshold=85, PressureThreshold=10 → валидация проходит успешно |
+| TC-18 | Name — пустая строка | Name="" → ошибка в поле Name |
+| TC-19 | Name — только пробелы | Name=" " → ошибка в поле Name |
+| TC-20 | Name — превышает максимальную длину | Name содержит 201 символ (максимум 200) → ошибка в поле Name |
+| TC-21 | Name — граничное значение 200 символов | Name содержит ровно 200 символов → поле Name без ошибок |
+| TC-22 | Location — пустая строка | Location="" → ошибка в поле Location |
+| TC-23 | TemperatureThreshold = 0 | Порог температуры равен нулю → ошибка в поле TemperatureThreshold (должно быть строго больше 0) |
+| TC-24 | TemperatureThreshold < 0 | Порог температуры равен -1 → ошибка в поле TemperatureThreshold |
+| TC-25 | PressureThreshold ≤ 0 | Порог давления равен 0 или отрицательный (-5) → ошибка в поле PressureThreshold |
+| TC-26 | Все поля некорректны одновременно | Name="", Location="", TemperatureThreshold=0, PressureThreshold=0 → валидация не прошла; возвращается не менее 4 ошибок |
+
+---
+
+# Модуль 4 — TelemetryRequestValidator (валидатор показаний телеметрии)
+
+| ID | Название теста | Описание |
+|---|---|---|
+| TC-27 | Все поля корректны | BoilerId=GUID, Temperature=75, Pressure=8, Timestamp=сейчас-1мин → валидация проходит успешно |
+| TC-28 | BoilerId — пустой GUID | BoilerId=00000000-0000-0000-0000-000000000000 → ошибка в поле BoilerId |
+| TC-29 | Temperature ниже минимума | Temperature=-51 (допустимый диапазон: -50..200) → ошибка в поле Temperature |
+| TC-30 | Temperature выше максимума | Temperature=201 → ошибка в поле Temperature |
+| TC-31 | Temperature на границах диапазона | Temperature=-50 или Temperature=200 → поле Temperature без ошибок (граничные значения допустимы) |
+| TC-32 | Pressure отрицательное | Pressure=-0.1 → ошибка в поле Pressure (минимальное значение: 0) |
+| TC-33 | Pressure превышает максимум | Pressure=50.1 → ошибка в поле Pressure (максимальное значение: 50) |
+| TC-34 | Timestamp в будущем | Timestamp=UtcNow+10мин → ошибка в поле Timestamp (нельзя принимать данные из будущего) |
+| TC-35 | Timestamp не задан (DateTime.MinValue) | Timestamp=default(DateTime) → ошибка в поле Timestamp |
+
+---
+
+# Модуль 5 — AnomalyDetector (детектор аномалий)
+
+| ID | Название теста | Описание |
+|---|---|---|
+| TC-36 | Оба показания в пределах нормы | Температура=75 < порог 85; давление=8 < порог 10 → список аномалий пуст |
+| TC-37 | Превышен порог температуры | Температура=95 > порог 85; давление в норме → одна аномалия: type=temperature_exceeded, ActualValue=95, Threshold=85 |
+| TC-38 | Превышен порог давления | Давление=12 > порог 10; температура в норме → одна аномалия: type=pressure_exceeded, ActualValue=12, Threshold=10 |
+| TC-39 | Оба порога превышены одновременно | Температура=95 > 85 и давление=12 > 10 → две аномалии: temperature_exceeded и pressure_exceeded |
+| TC-40 | Значения ровно на порогах (граничный случай) | Температура=85 = порог 85; давление=10 = порог 10 → аномалий нет (условие строгое: только > порога, не ≥) |
+| TC-41 | BoilerId в событии аномалии корректный | Показание принадлежит котлу ID=X, температура превышена → поле BoilerId в событии аномалии равно X |
+| TC-42 | DetectedAt установлен корректно | Превышение температуры; момент начала теста зафиксирован → DetectedAt в событии аномалии не меньше времени начала теста |
+
+---
