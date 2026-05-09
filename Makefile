@@ -17,7 +17,7 @@ CHART          := helm/boiler-telemetry
 IMAGES         := app-boiler-telemetry-api app-anomaly-service app-notification-worker
 
 .PHONY: help up down status ports ports-stop logs build install reload-images \
-        databases minikube reset-grafana clean
+        databases minikube reset-grafana clean backup-now restore-postgres list-backups
 
 help:
 	@echo "Цели:"
@@ -31,6 +31,9 @@ help:
 	@echo "  make install          — helm upgrade --install (без сборки)"
 	@echo "  make reload-images    — пересобрать + перезалить образы + рестарт деплоев"
 	@echo "  make reset-grafana    — сбросить пароль Grafana к admin/admin"
+	@echo "  make backup-now       — сделать бэкап Postgres+Influx прямо сейчас"
+	@echo "  make list-backups     — показать существующие бэкапы"
+	@echo "  make restore-postgres FILE=...  — восстановить Postgres из дампа"
 	@echo "  make clean            — make down + minikube delete + volumes БД"
 
 # ── Полный деплой ────────────────────────────────────────────────────────────
@@ -142,6 +145,38 @@ logs:
 	fi
 	kubectl logs -n $(NAMESPACE) -l app.kubernetes.io/component=$(SVC) --tail=100 -f 2>/dev/null || \
 	kubectl logs -n $(NAMESPACE) -l app=$(SVC) --tail=100 -f
+
+# ── Бэкапы и восстановление ──────────────────────────────────────────────────
+backup-now:
+	@echo "==> Postgres dump..."
+	docker exec boiler-postgres-backup /backup.sh
+	@echo "==> Influx backup..."
+	@ts=$$(date +%Y-%m-%d-%H-%M); \
+	    docker exec boiler-influx-backup influx backup --host http://influxdb:8086 --token dev-token /backups/$$ts && \
+	    echo "  -> /backups/$$ts"
+
+list-backups:
+	@echo "==> Postgres (infra/databases/backups/postgres):"
+	@ls -la infra/databases/backups/postgres/last/ 2>/dev/null || echo "  пусто"
+	@echo ""
+	@echo "==> InfluxDB (infra/databases/backups/influx):"
+	@ls -1 infra/databases/backups/influx/ 2>/dev/null | tail -10 || echo "  пусто"
+
+# Восстановить Postgres из дампа: make restore-postgres FILE=last/boiler_telemetry-latest.sql.gz
+restore-postgres:
+	@if [ -z "$(FILE)" ]; then \
+	    echo "укажи: make restore-postgres FILE=last/boiler_telemetry-latest.sql.gz"; \
+	    echo "(пути относительно infra/databases/backups/postgres/)"; exit 1; \
+	fi
+	@echo "==> ВНИМАНИЕ: текущая БД boiler_telemetry будет дропнута!"
+	@echo "    Восстановление из: $(FILE)"
+	@read -p "    Продолжить? [y/N] " ans && [ "$$ans" = "y" ]
+	docker exec boiler-postgres dropdb -U postgres --if-exists boiler_telemetry
+	docker exec boiler-postgres createdb -U postgres boiler_telemetry
+	gunzip -c "infra/databases/backups/postgres/$(FILE)" | docker exec -i boiler-postgres psql -U postgres -d boiler_telemetry
+	@echo "==> Перезапускаю приложения чтобы они переподключились..."
+	kubectl -n $(NAMESPACE) rollout restart deploy/boiler-api deploy/boiler-notification-worker
+	@echo "✓ Восстановлено."
 
 reset-grafana:
 	@p=$$(kubectl get pods -n $(NAMESPACE) -l app=grafana -o jsonpath='{.items[0].metadata.name}'); \

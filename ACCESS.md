@@ -79,6 +79,28 @@ http://localhost:8085
 - **Topics** → `telemetry-events` (3 partition'а), `anomaly-events` → клик → **Messages** → **Live mode** для real-time
 - **Consumers** → `anomaly-service-group`, `notification-worker-group`
 
+## 💾 Бэкапы и восстановление
+
+Бэкапы делаются автоматически в `infra/databases/backups/`:
+- **Postgres** — каждый час через `prodrigestivill/postgres-backup-local`. Ротация: последние 7 дней + 4 недели + 6 месяцев. Файлы вида `boiler_telemetry-YYYYMMDD-HHMMSS.sql.gz`.
+- **InfluxDB** — каждый час `influx backup` пишет в подкаталог `YYYY-MM-DD-HH-MM/`. Ротация: последние 24 копии.
+
+```bash
+make backup-now         # принудительный бэкап обеих БД
+make list-backups       # показать что есть
+
+# Восстановить Postgres из конкретного файла:
+make restore-postgres FILE=last/boiler_telemetry-latest.sql.gz
+# (путь относительно infra/databases/backups/postgres/)
+```
+
+Дашборд в Grafana **Database Health** (`☰ → Dashboards → Boiler Telemetry → Database Health`) показывает:
+- Postgres up / InfluxDB up (DOWN→красный)
+- Размер БД, открытые соединения
+- TPS (commits/rollbacks/sec)
+- DML rate (inserted/updated/deleted)
+- InfluxDB API requests, write errors
+
 ## 💾 Прямой доступ к БД
 
 ```bash

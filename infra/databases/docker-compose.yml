@@ -41,6 +41,62 @@ services:
       timeout: 3s
       retries: 10
 
+  # ── postgres_exporter — отдаёт метрики Postgres в Prometheus формате ─────
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: boiler-postgres-exporter
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres:postgres@postgres:5432/boiler_telemetry?sslmode=disable"
+    ports:
+      - "9187:9187"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── Бэкапы Postgres (раз в час, ротация: 7 дней / 4 недели / 6 месяцев) ──
+  postgres-backup:
+    image: prodrigestivill/postgres-backup-local:16
+    container_name: boiler-postgres-backup
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: boiler_telemetry
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_EXTRA_OPTS: "-Z6 --schema=public --blobs"
+      SCHEDULE: "@hourly"
+      BACKUP_KEEP_DAYS: 7
+      BACKUP_KEEP_WEEKS: 4
+      BACKUP_KEEP_MONTHS: 6
+      HEALTHCHECK_PORT: 8080
+    volumes:
+      - ./backups/postgres:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── Бэкапы InfluxDB (раз в час, последние 24 копии) ──────────────────────
+  influx-backup:
+    image: influxdb:2.7
+    container_name: boiler-influx-backup
+    restart: unless-stopped
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    volumes:
+      - ./backups/influx:/backups
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      'while true; do
+         ts=$$(date +%Y-%m-%d-%H-%M);
+         echo "[$$(date)] backup -> /backups/$$ts";
+         influx backup --host http://influxdb:8086 --token dev-token /backups/$$ts || echo "backup failed";
+         # ротация: оставить последние 24 каталога
+         ls -1d /backups/*/ 2>/dev/null | sort | head -n -24 | xargs -r rm -rf;
+         sleep 3600;
+       done'
+
 volumes:
   postgres-data:
   influxdb-data:

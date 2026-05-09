@@ -25,10 +25,23 @@ make ports-stop      # прибить port-forward'ы
 make logs SVC=api    # логи (api / anomaly-service / notification-worker / nginx / kafka / opensearch / grafana / prometheus / jaeger / kafka-ui)
 make reload-images   # пересобрать образы и перезапустить деплои
 make reset-grafana   # сбросить пароль Grafana к admin/admin
+make backup-now      # принудительный бэкап Postgres+Influx
+make list-backups    # какие есть бэкапы
+make restore-postgres FILE=last/boiler_telemetry-latest.sql.gz   # восстановить из дампа
 make down            # снести релиз и БД (volumes остаются)
 make clean           # снести всё включая volumes и minikube
 make help            # список целей
 ```
+
+## 💾 Восстановление при падении БД
+
+Контейнеры `postgres` и `influxdb` стоят с `restart: unless-stopped` — после краха процесса Docker сам перезапустит. Бэкапы делаются раз в час автоматически.
+
+Сценарии:
+- **Контейнер упал** — Docker перезапустит сам, downtime ~30 сек, данные целы.
+- **Данные побились** — `make restore-postgres FILE=last/boiler_telemetry-latest.sql.gz`.
+- **VM перезагрузилась** — Docker поднимет контейнеры при старте (`unless-stopped`); затем `make ports`.
+- **Состояние мониторинга** — Grafana → Dashboards → Boiler Telemetry → **Database Health**.
 
 ## 🌐 UI
 
