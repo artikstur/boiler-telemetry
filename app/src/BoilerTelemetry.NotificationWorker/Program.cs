@@ -4,6 +4,7 @@ using BoilerTelemetry.NotificationWorker.Services;
 using Microsoft.EntityFrameworkCore;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
+using Prometheus;
 using Serilog;
 using Serilog.Formatting.Compact;
 using Serilog.Sinks.OpenSearch;
@@ -50,6 +51,9 @@ builder.Services.AddDbContext<NotificationDbContext>(options =>
 builder.Services.AddScoped<INotificationSender, LogNotificationSender>();
 builder.Services.AddHostedService<NotificationProcessingWorker>();
 builder.Services.AddHealthChecks();
+
+var metricServer = new KestrelMetricServer(port: 9090);
+metricServer.Start();
 
 var app = builder.Build();
 

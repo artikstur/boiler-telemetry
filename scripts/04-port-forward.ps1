@@ -19,6 +19,7 @@ $services = @(
     @{ name = 'grafana';               local = 3000;  remote = 3000;  label = 'Grafana' }
     @{ name = 'jaeger-ui';             local = 16686; remote = 16686; label = 'Jaeger UI' }
     @{ name = 'kafka-ui';              local = 8085;  remote = 8080;  label = 'Kafka UI' }
+    @{ name = 'prometheus';            local = 9090;  remote = 9090;  label = 'Prometheus' }
 )
 
 Write-Host "==> Запускаю port-forward'ы..." -ForegroundColor Cyan

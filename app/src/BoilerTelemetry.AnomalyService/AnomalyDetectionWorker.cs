@@ -3,11 +3,21 @@ using BoilerTelemetry.Domain.Entities;
 using Confluent.Kafka;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Options;
+using Prometheus;
 
 namespace BoilerTelemetry.AnomalyService;
 
 public class AnomalyDetectionWorker : BackgroundService
 {
+    private static readonly Counter AnomaliesDetected = Metrics.CreateCounter(
+        "boiler_anomalies_detected_total",
+        "Количество обнаруженных аномалий",
+        new CounterConfiguration { LabelNames = new[] { "type" } });
+
+    private static readonly Counter TelemetryProcessed = Metrics.CreateCounter(
+        "boiler_telemetry_processed_total",
+        "Количество обработанных telemetry-событий");
+
     private readonly AnomalyServiceSettings _settings;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IDistributedCache _cache;
@@ -81,6 +91,8 @@ public class AnomalyDetectionWorker : BackgroundService
                     continue;
                 }
 
+                TelemetryProcessed.Inc();
+
                 var anomalies = AnomalyDetector.DetectAnomalies(reading, boiler);
                 foreach (var anomaly in anomalies)
                 {
@@ -90,6 +102,7 @@ public class AnomalyDetectionWorker : BackgroundService
                         Value = JsonSerializer.Serialize(anomaly, JsonOptions)
                     };
                     await producer.ProduceAsync(_settings.OutputTopic, message, stoppingToken);
+                    AnomaliesDetected.WithLabels(anomaly.AnomalyType).Inc();
                     _logger.LogWarning("Anomaly detected: {Type} on boiler {BoilerId}, value={Value}, threshold={Threshold}",
                         anomaly.AnomalyType, anomaly.BoilerId, anomaly.ActualValue, anomaly.Threshold);
                 }

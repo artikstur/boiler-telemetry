@@ -1,0 +1,229 @@
+{{- if .Values.grafana.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-provider
+  labels:
+    app: grafana
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: 'boiler-telemetry'
+        orgId: 1
+        folder: 'Boiler Telemetry'
+        type: file
+        disableDeletion: false
+        editable: true
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  labels:
+    app: grafana
+data:
+  boiler-overview.json: |
+    {
+      "title": "Boiler Telemetry — Overview",
+      "uid": "boiler-overview",
+      "tags": ["boiler", "overview"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "refresh": "10s",
+      "time": { "from": "now-15m", "to": "now" },
+      "panels": [
+        {
+          "type": "stat",
+          "title": "RPS (API, последняя минута)",
+          "id": 1,
+          "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": { "defaults": { "unit": "reqps", "decimals": 2 } },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_received_total{service=\"api\"}[1m]))",
+              "legendFormat": "API",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Аномалий обнаружено (всего)",
+          "id": 2,
+          "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "red" } } },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+          "targets": [
+            { "expr": "sum(boiler_anomalies_detected_total)", "legendFormat": "anomalies", "refId": "A" }
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Уведомлений отправлено",
+          "id": 3,
+          "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "green" } } },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+          "targets": [
+            { "expr": "sum(boiler_notifications_sent_total)", "legendFormat": "notifications", "refId": "A" }
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Подов в кластере (Running)",
+          "id": 4,
+          "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": { "defaults": { "unit": "short" } },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+          "targets": [
+            { "expr": "count(up{job=\"boiler-pods\"}==1)", "legendFormat": "running", "refId": "A" }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "API: запросы по статус-кодам",
+          "id": 5,
+          "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": { "defaults": { "unit": "reqps" } },
+          "targets": [
+            {
+              "expr": "sum by (code) (rate(http_requests_received_total{service=\"api\"}[1m]))",
+              "legendFormat": "{{ "{{" }}code{{ "}}" }}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "API: latency (p50 / p95 / p99)",
+          "id": 6,
+          "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": { "defaults": { "unit": "s" } },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"api\"}[5m])))",
+              "legendFormat": "p50",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"api\"}[5m])))",
+              "legendFormat": "p95",
+              "refId": "B"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"api\"}[5m])))",
+              "legendFormat": "p99",
+              "refId": "C"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Аномалии по типу (rate, /sec)",
+          "id": 7,
+          "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "targets": [
+            {
+              "expr": "sum by (type) (rate(boiler_anomalies_detected_total[1m]))",
+              "legendFormat": "{{ "{{" }}type{{ "}}" }}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Telemetry events обработано (rate, /sec)",
+          "id": 8,
+          "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "targets": [
+            {
+              "expr": "sum(rate(boiler_telemetry_processed_total[1m]))",
+              "legendFormat": "telemetry/sec",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "CPU usage (по подам)",
+          "id": 9,
+          "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": { "defaults": { "unit": "s/s" } },
+          "targets": [
+            {
+              "expr": "rate(process_cpu_seconds_total{job=\"boiler-pods\"}[1m])",
+              "legendFormat": "{{ "{{" }}kubernetes_pod_name{{ "}}" }}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Memory (working set, по подам)",
+          "id": 10,
+          "gridPos": { "x": 12, "y": 20, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": { "defaults": { "unit": "bytes" } },
+          "targets": [
+            {
+              "expr": "process_working_set_bytes{job=\"boiler-pods\"}",
+              "legendFormat": "{{ "{{" }}kubernetes_pod_name{{ "}}" }}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "logs",
+          "title": "Последние логи (все сервисы)",
+          "id": 11,
+          "gridPos": { "x": 0, "y": 28, "w": 24, "h": 10 },
+          "datasource": { "type": "grafana-opensearch-datasource", "uid": "OpenSearch-Logs" },
+          "options": {
+            "showTime": true,
+            "wrapLogMessage": false,
+            "sortOrder": "Descending"
+          },
+          "targets": [
+            {
+              "query": "*",
+              "refId": "A",
+              "metrics": [{ "type": "logs", "id": "1" }],
+              "bucketAggs": [],
+              "timeField": "@timestamp"
+            }
+          ]
+        },
+        {
+          "type": "logs",
+          "title": "Только аномалии",
+          "id": 12,
+          "gridPos": { "x": 0, "y": 38, "w": 24, "h": 8 },
+          "datasource": { "type": "grafana-opensearch-datasource", "uid": "OpenSearch-Logs" },
+          "options": { "showTime": true, "sortOrder": "Descending" },
+          "targets": [
+            {
+              "query": "@mt:\"Anomaly detected*\"",
+              "refId": "A",
+              "metrics": [{ "type": "logs", "id": "1" }],
+              "bucketAggs": [],
+              "timeField": "@timestamp"
+            }
+          ]
+        }
+      ]
+    }
+{{- end }}

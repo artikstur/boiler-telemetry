@@ -9,11 +9,18 @@ data:
   datasources.yaml: |
     apiVersion: 1
     datasources:
+      - name: Prometheus
+        uid: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+        editable: true
       - name: OpenSearch-Logs
+        uid: OpenSearch-Logs
         type: grafana-opensearch-datasource
         access: proxy
         url: http://opensearch:9200
-        isDefault: true
         jsonData:
           database: "boiler-telemetry-*"
           flavor: opensearch
@@ -21,6 +28,7 @@ data:
           timeField: "@timestamp"
         editable: true
       - name: Jaeger-Traces
+        uid: Jaeger-Traces
         type: jaeger
         access: proxy
         url: http://jaeger-ui:16686
@@ -62,6 +70,12 @@ spec:
             - name: datasources
               mountPath: /etc/grafana/provisioning/datasources
               readOnly: true
+            - name: dashboards-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+              readOnly: true
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /api/health
@@ -75,6 +89,12 @@ spec:
         - name: datasources
           configMap:
             name: grafana-datasources
+        - name: dashboards-provider
+          configMap:
+            name: grafana-dashboards-provider
+        - name: dashboards
+          configMap:
+            name: grafana-dashboards
 ---
 apiVersion: v1
 kind: Service

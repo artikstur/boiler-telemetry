@@ -153,6 +153,18 @@ jaeger:
       cpu: "500m"
       memory: "512Mi"
 
+# ── Prometheus — метрики приложений и инфраструктуры ─────────────────────
+prometheus:
+  enabled: true
+  image: prom/prometheus:v2.55.0
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "768Mi"
+
 # ── Kafka UI — браузер топиков, сообщений, групп консьюмеров ─────────────
 kafkaUi:
   enabled: true

@@ -4,11 +4,17 @@ using BoilerTelemetry.NotificationWorker.Persistence;
 using BoilerTelemetry.NotificationWorker.Services;
 using Confluent.Kafka;
 using Microsoft.Extensions.Options;
+using Prometheus;
 
 namespace BoilerTelemetry.NotificationWorker;
 
 public class NotificationProcessingWorker : BackgroundService
 {
+    private static readonly Counter NotificationsSent = Metrics.CreateCounter(
+        "boiler_notifications_sent_total",
+        "Количество отправленных уведомлений",
+        new CounterConfiguration { LabelNames = new[] { "channel", "status" } });
+
     private readonly NotificationWorkerSettings _settings;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<NotificationProcessingWorker> _logger;
@@ -75,6 +81,7 @@ public class NotificationProcessingWorker : BackgroundService
                 db.Notifications.Add(notification);
                 await db.SaveChangesAsync(stoppingToken);
 
+                NotificationsSent.WithLabels(notification.Channel, notification.Status).Inc();
                 consumer.Commit(result);
             }
             catch (ConsumeException ex)

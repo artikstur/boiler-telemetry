@@ -14,6 +14,10 @@ spec:
     metadata:
       labels:
         {{- include "boiler-telemetry.selectorLabels" (dict "component" "anomaly-service" "root" .) | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
     spec:
       initContainers:
         - name: wait-for-kafka
@@ -30,7 +34,10 @@ spec:
           image: {{ .Values.anomalyService.image }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
-            - containerPort: {{ .Values.anomalyService.port }}
+            - name: http
+              containerPort: {{ .Values.anomalyService.port }}
+            - name: metrics
+              containerPort: 9090
           env:
             - name: CrudApiBaseUrl
               value: "http://{{ include "boiler-telemetry.fullname" . }}-api:8080"

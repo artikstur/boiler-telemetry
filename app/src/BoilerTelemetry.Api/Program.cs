@@ -5,6 +5,7 @@ using BoilerTelemetry.Infrastructure;
 using FluentValidation;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
+using Prometheus;
 using Serilog;
 using Serilog.Formatting.Compact;
 using Serilog.Sinks.OpenSearch;
@@ -94,7 +95,11 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseRouting();
+app.UseHttpMetrics();   // длительность/количество запросов по маршрутам
+
 app.MapControllers();
 app.MapHealthChecks("/health");
+app.MapMetrics("/metrics");
 
 app.Run();

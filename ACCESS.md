@@ -17,6 +17,7 @@
 | **Grafana**                | http://localhost:3000     | `admin` / `admin`                    | Логи (через OpenSearch datasource) и трейсы (Jaeger)       |
 | **Jaeger UI**              | http://localhost:16686    | без авторизации                      | Распределённые трейсы запросов                             |
 | **Kafka UI**               | http://localhost:8085     | без авторизации                      | Топики, сообщения, группы консьюмеров                      |
+| **Prometheus**             | http://localhost:9090     | без авторизации                      | Метрики приложений и инфраструктуры                        |
 | **InfluxDB UI** (на хосте) | http://localhost:28086    | `admin` / `adminpassword`            | Точки телеметрии, токен `dev-token`                        |
 | **PostgreSQL** (на хосте)  | `localhost:25432`         | `postgres` / `postgres` / `boiler_telemetry` | Таблицы `boilers`, `notifications`                  |
 
@@ -39,24 +40,45 @@
 - `@l: "Error"` — только ошибки
 - `@mt: "Anomaly detected*"` — только события обнаружения аномалий
 
-## 📈 Grafana: первая настройка
+## 📈 Grafana
 
-http://localhost:3000 → `admin` / `admin`
+http://localhost:3000 → `admin` / `admin` (если не пускает — `.\scripts\05-reset-grafana-admin.ps1`).
 
-Если admin/admin не работает (бывает после `helm upgrade`), сбрось:
-```powershell
-.\scripts\05-reset-grafana-admin.ps1
-```
+**Готовый дашборд:** слева **☰ → Dashboards → Boiler Telemetry → Boiler Telemetry — Overview**.
 
-При первом входе предложит сменить пароль — нажми **Skip**.
+12 панелей:
+- RPS API, Аномалий обнаружено, Уведомлений отправлено, Подов в кластере (стат-карточки)
+- API: запросы по статус-кодам (200/400/500)
+- API: latency p50/p95/p99
+- Аномалии по типу (`temperature_exceeded` / `pressure_exceeded`)
+- Telemetry events обработано
+- CPU usage по подам
+- Memory по подам
+- Последние логи (все сервисы) — datasource OpenSearch
+- Только аномалии — фильтр `@mt:"Anomaly detected*"`
 
-Datasources уже настроены автоматически (OpenSearch + Jaeger). Слева **☰ → Connections → Data sources** — должно быть 2 шт.
+**3 datasource** настроены автоматически:
+- **Prometheus** — метрики (default)
+- **OpenSearch-Logs** — логи
+- **Jaeger-Traces** — трейсы
 
-Просмотр логов:
-- Слева **☰ → Explore** → datasource **OpenSearch-Logs** → query field оставь `*` → нажми **Run query** (или Shift+Enter)
+В **Explore** можешь крутить любые ad-hoc запросы:
+- PromQL: `rate(boiler_anomalies_detected_total[1m])`
+- OpenSearch: `Service: "boiler-telemetry-api" AND @l: "Error"`
+- Jaeger: service `boiler-telemetry-api` → Run
 
-Просмотр трейсов:
-- **Explore** → datasource **Jaeger-Traces** → query type **Search** → service `boiler-telemetry-api` → **Run query**
+## 📊 Prometheus
+
+http://localhost:9090
+
+**Status → Targets** — должно быть 7 endpoints в состоянии **UP** (2× api, 2× anomaly, 2× notification, prometheus self).
+
+Полезные запросы (вкладка Graph):
+- `sum(rate(http_requests_received_total[1m]))` — RPS API
+- `sum(boiler_anomalies_detected_total)` — всего аномалий
+- `sum by (type) (boiler_anomalies_detected_total)` — по типу
+- `histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))` — p95 latency
+- `process_working_set_bytes{job="boiler-pods"}` — память по подам
 
 ## 🔍 Jaeger UI
 
