@@ -1,21 +1,10 @@
 # Test Cases
 
-## Подготовка для всех тестов
+Документ описывает системные тесты на уровне сценариев. Для воспроизведения вживую — готовые скрипты в локальной (не коммитится) папке `test-runs/`: на каждый кейс — `<код>.cmd`, двойной клик в Проводнике открывает консоль и прогоняет тест.
 
-В **PowerShell** в корне проекта:
+Перед прогоном — поднять кластер: `./windows/02-up.ps1` (или `./windows/04-ports.ps1`, если упали port-forward'ы).
 
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-$env:Path = "$env:LOCALAPPDATA\bin;$env:Path"
-
-# Если кластер ещё не поднят:
-.\windows\02-up.ps1
-
-# Если port-forward'ы отвалились:
-.\windows\04-ports.ps1
-```
-
-После этого UI доступны на: API `:18080`, Grafana `:3000`, OpenSearch `:5601`, Jaeger `:16686`, Kafka UI `:8085`, Prometheus `:9090`.
+UI после `up`: API `:18080`, Grafana `:3000`, OpenSearch `:5601`, Jaeger `:16686`, Kafka UI `:8085`, Prometheus `:9090`.
 
 ---
 
@@ -24,94 +13,45 @@ $env:Path = "$env:LOCALAPPDATA\bin;$env:Path"
 ## F-01. End-to-end: телеметрия → аномалия → уведомление
 
 **Цель:** проверить полный путь сообщения через 3 сервиса и 2 топика Kafka.
-
 **Требование:** UC1, UC2, UC3 из README.
 
-**Сценарий:**
-
-```powershell
-$base = 'http://localhost:18080'
-
-# 1. Создаём бойлер с порогами 85°C / 10 bar
-$b = @{ name="F01-$(Get-Random)"; location='Цех-1'; temperatureThreshold=85; pressureThreshold=10 } | ConvertTo-Json
-$boiler = Invoke-RestMethod "$base/api/v1/boilers" -Method POST -Body $b -ContentType 'application/json'
-$id = $boiler.id
-Write-Host "Создан бойлер: $id"
-
-# 2. Шлём аномальную телеметрию (99°C / 15 bar — оба порога превышены)
-$t = @{ boilerId=$id; temperature=99; pressure=15; timestamp=(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ') } | ConvertTo-Json
-$resp = Invoke-WebRequest "$base/api/v1/telemetry" -Method POST -Body $t -ContentType 'application/json' -UseBasicParsing
-Write-Host "Telemetry status: $($resp.StatusCode), trace: $($resp.Headers['X-Trace-Id'])"
-
-Start-Sleep 6
-
-# 3. Проверяем что в InfluxDB лежит точка (через HTTP API, чтобы обойти ад экранирования в docker exec на Windows)
-$flux = "from(bucket:`"telemetry`") |> range(start: -5m) |> filter(fn: (r) => r.boilerId == `"$id`")"
-Invoke-RestMethod 'http://localhost:28086/api/v2/query?org=boiler-org' -Method POST `
-    -Headers @{ Authorization='Token dev-token'; 'Content-Type'='application/vnd.flux'; Accept='application/csv' } `
-    -Body $flux
-
-# 4. Проверяем что в Postgres легло 2 уведомления (temperature + pressure)
-docker exec boiler-postgres psql -U postgres -d boiler_telemetry -c "SELECT message, created_at FROM notifications WHERE boiler_id='$id';"
-```
+**Что делаем:**
+1. Создаём бойлер с порогами 85 °C / 10 bar.
+2. Шлём в него телеметрию 99 °C / 15 bar (оба порога превышены).
+3. Запрашиваем точку из InfluxDB по `boiler_id`.
+4. Смотрим записи в Postgres-таблице `notifications` для этого бойлера.
 
 **Ожидаемый результат:**
-- POST `/api/v1/telemetry` → `202 Accepted`
-- InfluxDB: 1 запись с `temperature=99, pressure=15`
-- Postgres: 2 строки в `notifications` — `temperature_exceeded: value=99, threshold=85` и `pressure_exceeded: value=15, threshold=10`
+- POST `/api/v1/telemetry` → `202 Accepted`, в ответе есть `X-Trace-Id`.
+- В InfluxDB ровно одна запись с `temperature=99` и `pressure=15`.
+- В Postgres две строки в `notifications`: `temperature_exceeded: value=99, threshold=85` и `pressure_exceeded: value=15, threshold=10`.
+
+**Скрипт:** `test-runs/F-01-end-to-end.cmd`
 
 ## F-02. Валидация: невалидные запросы возвращают 400
 
 **Цель:** API отклоняет некорректные данные на трёх endpoint'ах.
 
-**Сценарий:**
+**Что делаем:**
+1. POST `/boilers` с пустым именем и отрицательными порогами.
+2. POST `/telemetry` с отрицательной температурой и давлением.
+3. GET `/telemetry/{id}?from=...&to=...`, где `from > to`.
 
-```powershell
-$base = 'http://localhost:18080'
+**Ожидаемый результат:** все три запроса возвращают `400 Bad Request`.
 
-# Бойлер с пустым именем и отрицательными порогами
-$bad1 = @{ name=''; location=''; temperatureThreshold=-1; pressureThreshold=0 } | ConvertTo-Json
-try { Invoke-RestMethod "$base/api/v1/boilers" -Method POST -Body $bad1 -ContentType 'application/json' }
-catch { Write-Host "POST /boilers (пустой): $([int]$_.Exception.Response.StatusCode)" }
-
-# Телеметрия с отрицательной температурой
-$bad2 = @{ boilerId='00000000-0000-0000-0000-000000000000'; temperature=-50; pressure=-1; timestamp=(Get-Date).ToString('o') } | ConvertTo-Json
-try { Invoke-RestMethod "$base/api/v1/telemetry" -Method POST -Body $bad2 -ContentType 'application/json' }
-catch { Write-Host "POST /telemetry (отриц): $([int]$_.Exception.Response.StatusCode)" }
-
-# История с from > to 
-$boilers = @(Invoke-RestMethod "$base/api/v1/boilers")
-if ($boilers.Count -eq 0) {
-    $tmp = Invoke-RestMethod "$base/api/v1/boilers" -Method POST `
-        -Body (@{name="F02-tmp";location='X';temperatureThreshold=85;pressureThreshold=10}|ConvertTo-Json) `
-        -ContentType 'application/json'
-    $id = $tmp.id
-} else {
-    $id = $boilers[0].id
-}
-$from = [uri]::EscapeDataString('2026-12-31T00:00:00Z')
-$to   = [uri]::EscapeDataString('2026-01-01T00:00:00Z')
-try { Invoke-RestMethod "$base/api/v1/telemetry/$id`?from=$from&to=$to" }
-catch { Write-Host "GET /telemetry (from>to): $([int]$_.Exception.Response.StatusCode)" }
-```
-
-**Ожидаемый результат:** все три выводят `400`.
+**Скрипт:** `test-runs/F-02-validation.cmd`
 
 ## F-03. Дубликат бойлера — 409 Conflict
 
-```powershell
-$base = 'http://localhost:18080'
-$body = @{ name="F03-Duplicate"; location='X'; temperatureThreshold=85; pressureThreshold=10 } | ConvertTo-Json
-Invoke-RestMethod "$base/api/v1/boilers" -Method POST -Body $body -ContentType 'application/json' | Out-Null
+**Цель:** уникальное имя бойлера защищено на уровне API.
 
-try { Invoke-RestMethod "$base/api/v1/boilers" -Method POST -Body $body -ContentType 'application/json' }
-catch {
-    Write-Host "Status: $([int]$_.Exception.Response.StatusCode)"
-    Write-Host "Body:   $($_.ErrorDetails.Message)"
-}
-```
+**Что делаем:**
+1. Создаём бойлер с именем `F03-Duplicate-*`.
+2. Пытаемся создать ещё одного с тем же именем.
 
-**Ожидаемый результат:** `409 Conflict`, body содержит `Boiler with name 'F03-Duplicate' already exists`.
+**Ожидаемый результат:** второй запрос возвращает `409 Conflict`, тело — `Boiler with name '...' already exists`.
+
+**Скрипт:** `test-runs/F-03-duplicate.cmd`
 
 ---
 
@@ -119,125 +59,58 @@ catch {
 
 ## R-01. Падение реплики приложения — система остаётся доступной
 
-**Цель:** при kill одного из подов API запросы продолжают проходить через вторую реплику.
+**Цель:** kill одного из подов API не ломает обслуживание.
+**Требование:** при отказе одного экземпляра восстановление обработки ≤ 30 секунд.
 
-**Требование:** При отказе одного экземпляра сервиса восстановление обработки должно происходить в течение 30 секунд.
-
-**Сценарий:**
-
-```powershell
-$base = 'http://localhost:18080'
-
-# 1. Видим что есть 2 реплики API
-kubectl get pods -n boiler -l app.kubernetes.io/component=api
-
-# 2. Прибиваем один pod
-$pod1 = (kubectl get pods -n boiler -l app.kubernetes.io/component=api -o jsonpath='{.items[0].metadata.name}')
-Write-Host "Убиваю $pod1..."
-kubectl delete pod -n boiler $pod1 --grace-period=0 --force
-
-# 3. Сразу шлём 20 запросов на /health
-$ok = 0; $fail = 0
-1..20 | ForEach-Object {
-    try { Invoke-RestMethod "$base/health" -TimeoutSec 3 | Out-Null; $ok++ }
-    catch { $fail++ }
-    Start-Sleep -Milliseconds 200
-}
-Write-Host "Health-чеков: $ok успешных / $fail упавших"
-
-# 4. Через 30 сек проверяем что кубер поднял замену
-Start-Sleep 30
-kubectl get pods -n boiler -l app.kubernetes.io/component=api
-```
+**Что делаем:**
+1. Смотрим, что API имеет 2 реплики (`kubectl get pods -l app.kubernetes.io/component=api`).
+2. Делаем `kubectl delete pod ... --grace-period=0 --force` по одной из них.
+3. Сразу шлём 20 запросов на `/health` шаг каждые 200 мс.
+4. Ждём 30 секунд и проверяем число реплик в статусе `Running`.
 
 **Ожидаемый результат:**
-- `ok = 20, fail = 0` — ни один запрос не упал (PodDisruptionBudget + 2 реплики → вторая обработала всё).
-- Через ~30 сек снова **2 реплики Running** (Deployment пересоздал убитый pod).
+- Все 20 health-чеков успешны (`ok=20, fail=0`). PDB + вторая реплика держат трафик.
+- Через ~30 секунд `Running`-реплик снова ≥ 2 — Deployment пересоздал убитую.
 
-## R-02. Падение Postgres контейнера — авто-восстановление + данные на месте
+**Скрипт:** `test-runs/R-01-pod-kill.cmd`
 
-**Цель:** при отключении Postgres-контейнера Docker рестартует его (`restart: unless-stopped`), данные сохраняются (volume), приложения переподключаются.
+## R-02. Падение Postgres — авто-восстановление, данные на месте
 
-**Сценарий:**
+**Цель:** убитый Postgres-контейнер поднимается, данные не теряются (volume), приложения переподключаются.
 
-```powershell
-# 1. Создадим бойлер, чтобы было что проверить
-$id = (Invoke-RestMethod 'http://localhost:18080/api/v1/boilers' -Method POST `
-       -Body (@{name="R02-$(Get-Random)";location='X';temperatureThreshold=85;pressureThreshold=10}|ConvertTo-Json) `
-       -ContentType 'application/json').id
-Write-Host "Создан бойлер: $id"
-
-# 2. Считаем сколько бойлеров есть до краша
-$before = @(Invoke-RestMethod 'http://localhost:18080/api/v1/boilers').Count
-Write-Host "Бойлеров до падения: $before"
-
-# 3. Убиваем Postgres
-Write-Host "Убиваю Postgres..."
-docker kill boiler-postgres
-
-# 4. Проверяем что докер сам его поднял
-Start-Sleep 15
-docker ps --filter "name=boiler-postgres" --format "{{.Names}} -> {{.Status}}"
-
-# 5. Ждём пока станет healthy
-$deadline = (Get-Date).AddSeconds(60)
-while ((Get-Date) -lt $deadline) {
-    $s = docker inspect --format '{{.State.Health.Status}}' boiler-postgres 2>$null
-    Write-Host "  postgres: $s"
-    if ($s -eq 'healthy') { break }
-    Start-Sleep 3
-}
-
-# 6. Тот же запрос — данные должны быть на месте
-$after = @(Invoke-RestMethod 'http://localhost:18080/api/v1/boilers').Count
-Write-Host "Бойлеров после восстановления: $after"
-Invoke-RestMethod "http://localhost:18080/api/v1/boilers/$id"
-```
+**Что делаем:**
+1. Создаём «маркер»-бойлер, запоминаем его id и общее число бойлеров `before`.
+2. `docker kill boiler-postgres`.
+3. Ждём, пока контейнер вернётся (`restart: unless-stopped`).
+4. Ждём healthcheck `healthy`.
+5. Считаем `after` через `/api/v1/boilers` и пробуем GET по сохранённому id.
 
 **Ожидаемый результат:**
-- После `docker kill` контейнер автоматически рестартует, через ~15 сек снова `Up (healthy)`.
-- `before == after` — данные не потеряны (Docker volume).
-- GET по `id` возвращает 200 (бойлер на месте).
-- В Grafana → **Database Health** → "Postgres up" на ~10 сек проваливается в `DOWN`, потом снова `UP`.
+- Контейнер возвращается в `Up (healthy)`.
+- `before == after` — данные на диске (volume) не потеряны.
+- GET `/boilers/{id}` отдаёт бойлера (200).
+- В Grafana → **Database Health** → панель «Postgres up» проваливается в `DOWN` на ~10–60 сек и возвращается в `UP`.
 
-## R-03. Бэкап → удаление таблицы → восстановление
+**Скрипт:** `test-runs/R-02-postgres-kill.cmd`
 
-**Цель:** проверить что бэкапы Postgres работают и восстановление возможно.
+## R-03. Бэкап → drop table → восстановление
 
-**Сценарий:**
+**Цель:** бэкап-контейнер реально пишет дампы, восстановление из последнего дампа возвращает данные.
 
-```powershell
-# 1. Создадим бойлер с маркером
-$body = @{name="R03-$(Get-Random)";location='X';temperatureThreshold=85;pressureThreshold=10}|ConvertTo-Json
-Invoke-RestMethod 'http://localhost:18080/api/v1/boilers' -Method POST -Body $body -ContentType 'application/json' | Out-Null
-
-# 2. Делаем бэкап прямо сейчас
-docker exec boiler-postgres-backup /backup.sh
-docker exec boiler-postgres-backup ls -la /backups/last/
-
-# 3. Дропаем таблицу 
-docker exec boiler-postgres psql -U postgres -d boiler_telemetry -c "DROP TABLE boilers CASCADE;"
-
-# 4. Проверяем что API сломался (500)
-try { Invoke-RestMethod 'http://localhost:18080/api/v1/boilers' }
-catch { Write-Host "API status after drop: $([int]$_.Exception.Response.StatusCode)" }
-
-# 5. Восстанавливаем из последнего бэкапа
-docker exec boiler-postgres psql -U postgres -d boiler_telemetry -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
-docker exec -e PGPASSWORD=postgres boiler-postgres-backup sh -c "gunzip -c /backups/last/boiler_telemetry-latest.sql.gz | psql -h postgres -U postgres -d boiler_telemetry"
-
-# 6. Рестартуем приложения чтобы EF Core переподключился к свежей схеме
-kubectl rollout restart deploy/boiler-api deploy/boiler-notification-worker -n boiler
-kubectl -n boiler rollout status deploy/boiler-api --timeout=3m
-kubectl -n boiler rollout status deploy/boiler-notification-worker --timeout=3m
-
-# 7. Проверяем что бойлер вернулся
-@(Invoke-RestMethod 'http://localhost:18080/api/v1/boilers') | Where-Object { $_.name -like 'R03-*' }
-```
+**Что делаем:**
+1. Создаём маркер-бойлер `R03-*`.
+2. Запускаем разовый бэкап через `boiler-postgres-backup` (`/backup.sh`), смотрим `/backups/last/`.
+3. Дропаем таблицу `boilers` (`DROP TABLE boilers CASCADE`).
+4. Проверяем, что API теперь отдаёт `500` на `/boilers` (таблицы нет).
+5. Чистим схему (`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`) и заливаем последний дамп: `gunzip -c .../boiler_telemetry-latest.sql.gz | psql ...` (с `PGPASSWORD=postgres`, передаваемым через `docker exec -e`).
+6. Делаем `kubectl rollout restart` для `boiler-api` и `boiler-notification-worker`, ждём `rollout status`.
+7. Запрашиваем `/boilers`, ищем имя `R03-*`.
 
 **Ожидаемый результат:**
-- После dropa API возвращает 500 (таблицы нет).
-- После restore — все бойлеры из бэкапа восстановлены, API снова отвечает 200.
+- После drop API возвращает 5xx.
+- После restore + restart деплоев API снова отдаёт 200, маркер-бойлер на месте.
+
+**Скрипт:** `test-runs/R-03-backup-restore.cmd`
 
 ---
 
@@ -246,188 +119,88 @@ kubectl -n boiler rollout status deploy/boiler-notification-worker --timeout=3m
 ## S-01. HPA добавляет реплики под нагрузкой
 
 **Цель:** HorizontalPodAutoscaler срабатывает при росте CPU.
+**Требование:** «CRUD Service, Anomaly Detection Service и Notification Worker должны поддерживать горизонтальное масштабирование путём увеличения числа реплик» (README, нефункциональные, п.2).
 
-**Требование:** "CRUD Service, Anomaly Detection Service и Notification Worker должны поддерживать горизонтальное масштабирование путём увеличения числа реплик" (README, нефункциональные, п.2).
-
-**Сценарий:**
-
-```powershell
-# 1. Стартовое состояние: 2 реплики, CPU низкий
-kubectl get hpa -n boiler boiler-api
-
-# 2. отправляем API ~500 запросами в 10 параллельных потоков
-$jobs = 1..10 | ForEach-Object {
-    Start-Job -ScriptBlock {
-        $deadline = (Get-Date).AddMinutes(3)
-        $i = 0
-        while ((Get-Date) -lt $deadline) {
-            try {
-                Invoke-RestMethod 'http://localhost:18080/api/v1/boilers' -TimeoutSec 2 | Out-Null
-                $i++
-            } catch {}
-        }
-        return $i
-    }
-}
-
-# 3. Каждые 30 секунд смотрим HPA + кол-во подов
-1..6 | ForEach-Object {
-    Start-Sleep 30
-    Write-Host "--- проход $_ ---"
-    kubectl get hpa -n boiler boiler-api
-    kubectl get pods -n boiler -l app.kubernetes.io/component=api --no-headers | Measure-Object | ForEach-Object { Write-Host "Реплик API: $($_.Count)" }
-}
-
-$total = ($jobs | Wait-Job | Receive-Job | Measure-Object -Sum).Sum
-Write-Host "Всего запросов: $total"
-$jobs | Remove-Job
-```
+**Что делаем:**
+1. Смотрим стартовый HPA и число подов API.
+2. Запускаем 10 параллельных PowerShell-job'ов, каждый 3 минуты долбит `/api/v1/boilers`.
+3. Каждые 30 секунд (6 проходов) смотрим HPA + число подов.
+4. Считаем суммарное число прошедших запросов.
 
 **Ожидаемый результат:**
-- В первые 30-60 сек CPU API растёт > 70% (можно увидеть в Grafana → Overview → CPU usage).
-- HPA через 30-90 сек масштабирует до **4-6 реплик** (зависит от нагрузки).
-- После прекращения нагрузки реплики не сразу уменьшаются (cooldown ~5 мин по умолчанию).
+- В первые 30–90 секунд CPU API растёт.
+- HPA скейлит до 4–6 реплик (потолок `maxReplicas=6`).
+- После окончания нагрузки число реплик уменьшается не сразу (HPA cooldown ~5 минут).
+
+**Скрипт:** `test-runs/S-01-hpa-load.cmd` (займёт ~3 минуты)
 
 ## S-02. Ручное масштабирование без downtime
 
-**Цель:** `kubectl scale` добавляет реплики без потери трафика.
+**Цель:** `kubectl scale` добавляет/убирает реплики без потери трафика.
 
-**Сценарий:**
+**Что делаем:**
+1. Запускаем фоновый job — 120 health-чеков с шагом 500 мс (≈60 секунд).
+2. Параллельно `kubectl scale boiler-api --replicas=5`, ждём 20 секунд.
+3. Возвращаем `--replicas=2`, ждём ещё 20 секунд.
+4. Дожидаемся завершения job'а и считаем `ok / fail`.
 
-```powershell
-# 1. В одном окне запустить непрерывные запросы
-$job = Start-Job -ScriptBlock {
-    $ok = 0; $fail = 0
-    1..120 | ForEach-Object {
-        try { Invoke-RestMethod 'http://localhost:18080/health' -TimeoutSec 2 | Out-Null; $ok++ }
-        catch { $fail++ }
-        Start-Sleep -Milliseconds 500
-    }
-    "ok=$ok fail=$fail"
-}
+**Ожидаемый результат:** `fail = 0`.
 
-# 2. Параллельно масштабируем туда-сюда
-kubectl scale deploy -n boiler boiler-api --replicas=5
-Start-Sleep 20
-kubectl get pods -n boiler -l app.kubernetes.io/component=api
-kubectl scale deploy -n boiler boiler-api --replicas=2
-Start-Sleep 20
-
-# 3. Смотрим итог
-$job | Wait-Job | Receive-Job
-$job | Remove-Job
-```
-
-**Ожидаемый результат:**
-- Во время скейла 2 → 5 и 5 → 2 ни один из 120 health-чеков не падает.
-- `fail = 0` — zero-downtime подтверждён.
+**Скрипт:** `test-runs/S-02-manual-scale.cmd`
 
 ---
 
 # Observability — логи, метрики, трейсы
 
-## O-01. Трейс одного запроса проходит через 3 сервиса
+## O-01. Trace одного запроса через 3 сервиса
 
-**Цель:** один HTTP-запрос порождает связный trace через api → kafka → anomaly → kafka → notification, видимый в Jaeger.
+**Цель:** один HTTP-запрос порождает связный trace через цепочку api → kafka → anomaly → kafka → notification, видимый в Jaeger.
 
-**Сценарий:**
-
-```powershell
-# 1. Создать бойлер
-$id = (Invoke-RestMethod 'http://localhost:18080/api/v1/boilers' -Method POST `
-       -Body (@{name="O01-$(Get-Random)";location='X';temperatureThreshold=85;pressureThreshold=10}|ConvertTo-Json) `
-       -ContentType 'application/json').id
-
-# 2. Шлём аномальную телеметрию, ловим X-Trace-Id из ответа
-$t = @{ boilerId=$id; temperature=99; pressure=15; timestamp=(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ') } | ConvertTo-Json
-$resp = Invoke-WebRequest 'http://localhost:18080/api/v1/telemetry' -Method POST -Body $t -ContentType 'application/json' -UseBasicParsing
-$trace = $resp.Headers['X-Trace-Id']
-Write-Host "X-Trace-Id: $trace" -ForegroundColor Yellow
-
-Start-Sleep 7
-
-# 3. Из Jaeger API запрашиваем этот trace, считаем spans и сервисы
-$jt = Invoke-RestMethod "http://localhost:16686/api/traces/$trace"
-$spans = $jt.data[0].spans
-$svcs = ($jt.data[0].processes.PSObject.Properties.Value.serviceName) | Sort-Object -Unique
-Write-Host "Spans: $($spans.Count), Сервисов: $($svcs -join ', ')"
-
-# 4. Открыть UI:
-Write-Host "Открывай: http://localhost:16686/trace/$trace"
-```
+**Что делаем:**
+1. Создаём бойлер.
+2. Шлём аномальную телеметрию, ловим `X-Trace-Id` из ответа.
+3. Через 7 секунд запрашиваем трейс из Jaeger API: `GET /api/traces/{trace-id}`.
+4. Считаем количество span'ов и уникальных `serviceName` в `processes`.
+5. У одного span смотрим тэги — должен быть `k8s.pod.name`; у Kafka-спанов — `messaging.kafka.partition` и `messaging.kafka.offset`.
 
 **Ожидаемый результат:**
-- В трейсе **минимум 8 spans** через **3 сервиса**: `boiler-telemetry-api`, `boiler-telemetry-anomaly`, `boiler-telemetry-notification`.
-- В Jaeger UI у каждого span в Process tags виден `k8s.pod.name`, у Kafka spans — `messaging.kafka.partition`/`offset`.
+- ≥ 8 span'ов в трейсе.
+- 3 сервиса: `boiler-telemetry-api`, `boiler-telemetry-anomaly`, `boiler-telemetry-notification`.
+- В Process tags каждого span есть `k8s.pod.name`; в Kafka-спанах виден partition/offset.
+- В Jaeger UI (`http://localhost:16686/trace/<id>`) — связное дерево спанов.
 
-## O-02. Логи в OpenSearch и связь с trace
+**Скрипт:** `test-runs/O-01-trace.cmd`
 
-**Цель:** все логи централизованы и связаны с трейсами по trace_id.
+## O-02. Логи в OpenSearch связаны с trace по TraceId
 
-**Сценарий:**
+**Цель:** все логи централизованы и связаны с трейсами через `fields.TraceId`.
 
-```powershell
-# Используем $trace из O-01
-
-# 1. Из OpenSearch query API — поиск логов по trace_id
-$q = @{ size=50; query=@{ term=@{ 'fields.TraceId.keyword'=$trace } }; sort=@(@{ '@timestamp'='asc' }) } | ConvertTo-Json -Depth 5
-$r = Invoke-RestMethod 'http://localhost:5601/api/console/proxy?path=boiler-telemetry-*/_search&method=POST' `
-     -Method POST -Headers @{'osd-xsrf'='true'} -ContentType 'application/json' -Body $q -TimeoutSec 10
-Write-Host "Логов с этим TraceId: $($r.hits.total.value)"
-
-# 2. Группировка по сервисам и подам
-$r.hits.hits | ForEach-Object {
-    [pscustomobject]@{ Service = $_._source.fields.Service; Pod = $_._source.fields.Pod }
-} | Group-Object Service, Pod | ForEach-Object {
-    Write-Host ("  {0}  →  {1} логов" -f $_.Name, $_.Count)
-}
-
-# 3. Открыть Discover в UI
-Write-Host "Открывай: http://localhost:5601 → Discover → фильтр: fields.TraceId:`"$trace`""
-```
+**Что делаем:**
+1. Делаем тот же сценарий, что в O-01 — получаем `X-Trace-Id`.
+2. Через OpenSearch Console Proxy ищем в индексе `boiler-telemetry-*` логи с `fields.TraceId.keyword == <id>`.
+3. Группируем найденные логи по `(fields.Service, fields.Pod)` — видно, из какой реплики какого сервиса пришла запись.
 
 **Ожидаемый результат:**
-- Найдено **>= 20 логов** через все 3 сервиса.
-- Каждый лог содержит `fields.TraceId`, `fields.SpanId`, `fields.Pod`, `fields.Service` — видно из какой реплики какого сервиса пришла запись.
-- В Discover работает фильтр `fields.TraceId:"<id>"`.
-- В Grafana → Explore → datasource Jaeger → spany имеют кнопку "Logs for this span" которая открывает OpenSearch с тем же фильтром.
+- Найдено ≥ 20 логов через все 3 сервиса.
+- В каждой записи есть `fields.TraceId`, `fields.SpanId`, `fields.Pod`, `fields.Service`.
+- В OpenSearch Dashboards → Discover работает фильтр `fields.TraceId:"<id>"`.
+- В Grafana → Explore → datasource Jaeger → у span'а есть кнопка «Logs for this span», которая открывает OpenSearch с тем же фильтром.
 
-## O-03. Метрики в Prometheus + дашборды в Grafana
+**Скрипт:** `test-runs/O-02-logs.cmd`
 
-**Цель:** счётчики работают и видны на дашборде.
+## O-03. Метрики в Prometheus + дашборды
 
-**Сценарий:**
+**Цель:** счётчики аномалий растут на каждом проходе, Prometheus собирает все targets.
 
-```powershell
-# 1. Снимем стартовое значение
-$q = 'sum(boiler_anomalies_detected_total)'
-$before = [int]((Invoke-RestMethod "http://localhost:9090/api/v1/query?query=$([uri]::EscapeDataString($q))").data.result[0].value[1])
-Write-Host "Аномалий до: $before"
-
-# 2. Шлём 5 аномальных запросов
-$id = (Invoke-RestMethod 'http://localhost:18080/api/v1/boilers' -Method POST `
-       -Body (@{name="O03-$(Get-Random)";location='X';temperatureThreshold=85;pressureThreshold=10}|ConvertTo-Json) `
-       -ContentType 'application/json').id
-
-1..5 | ForEach-Object {
-    $t = @{ boilerId=$id; temperature=99; pressure=15; timestamp=(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ') } | ConvertTo-Json
-    Invoke-WebRequest 'http://localhost:18080/api/v1/telemetry' -Method POST -Body $t -ContentType 'application/json' -UseBasicParsing | Out-Null
-}
-Start-Sleep 15
-
-# 3. Снова значение метрики
-$after = [int]((Invoke-RestMethod "http://localhost:9090/api/v1/query?query=$([uri]::EscapeDataString($q))").data.result[0].value[1])
-Write-Host "Аномалий после: $after (ожидаем +10 — по 2 на каждый из 5 запросов)"
-
-# 4. Проверим что в Prometheus есть все targets
-$tg = Invoke-RestMethod 'http://localhost:9090/api/v1/targets?state=active'
-$tg.data.activeTargets | Group-Object scrapePool | ForEach-Object {
-    $up = ($_.Group | Where-Object { $_.health -eq 'up' }).Count
-    Write-Host ("  {0,-22} {1}/{2} up" -f $_.Name, $up, $_.Group.Count)
-}
-```
+**Что делаем:**
+1. Снимаем `sum(boiler_anomalies_detected_total)` — назовём `before`.
+2. Шлём 5 аномальных запросов на `/telemetry` (каждый порождает 2 аномалии).
+3. Ждём 15 секунд (scrape interval) и снова читаем сумму — `after`.
+4. Запрашиваем `/api/v1/targets?state=active`, группируем по `scrapePool`, смотрим `up/total`.
 
 **Ожидаемый результат:**
-- `after - before = 10` (5 запросов × 2 типа аномалии каждый).
-- В Prometheus → Status → Targets все 7 endpoint'ов `up` (2× api, 2× anomaly, 2× notification, prometheus self).
-- В Grafana → Boiler Telemetry — Overview → панель "Аномалий обнаружено" увеличилась на 10.
+- `after - before == 10` (5 запросов × 2 типа аномалии: temperature + pressure).
+- Все scrape pool'ы `up/total`: `boiler-pods 6/6`, `prometheus 1/1`, `postgres-exporter 1/1`, `influxdb 1/1`.
+- В Grafana → **Boiler Telemetry — Overview** → панель «Аномалий обнаружено» увеличилась на 10.
+
+**Скрипт:** `test-runs/O-03-metrics.cmd`
