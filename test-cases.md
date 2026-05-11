@@ -45,8 +45,11 @@ Write-Host "Telemetry status: $($resp.StatusCode), trace: $($resp.Headers['X-Tra
 
 Start-Sleep 6
 
-# 3. Проверяем что в InfluxDB лежит точка
-docker exec boiler-influxdb influx query --token dev-token --org boiler-org "from(bucket:\`"telemetry\`") |> range(start: -2m) |> filter(fn: (r) => r.boilerId == \`"$id\`")"
+# 3. Проверяем что в InfluxDB лежит точка (через HTTP API, чтобы обойти ад экранирования в docker exec на Windows)
+$flux = "from(bucket:`"telemetry`") |> range(start: -5m) |> filter(fn: (r) => r.boilerId == `"$id`")"
+Invoke-RestMethod 'http://localhost:28086/api/v2/query?org=boiler-org' -Method POST `
+    -Headers @{ Authorization='Token dev-token'; 'Content-Type'='application/vnd.flux'; Accept='application/csv' } `
+    -Body $flux
 
 # 4. Проверяем что в Postgres легло 2 уведомления (temperature + pressure)
 docker exec boiler-postgres psql -U postgres -d boiler_telemetry -c "SELECT message, created_at FROM notifications WHERE boiler_id='$id';"
@@ -76,8 +79,16 @@ $bad2 = @{ boilerId='00000000-0000-0000-0000-000000000000'; temperature=-50; pre
 try { Invoke-RestMethod "$base/api/v1/telemetry" -Method POST -Body $bad2 -ContentType 'application/json' }
 catch { Write-Host "POST /telemetry (отриц): $([int]$_.Exception.Response.StatusCode)" }
 
-# История с from > to
-$id = (Invoke-RestMethod "$base/api/v1/boilers")[0].id
+# История с from > to 
+$boilers = @(Invoke-RestMethod "$base/api/v1/boilers")
+if ($boilers.Count -eq 0) {
+    $tmp = Invoke-RestMethod "$base/api/v1/boilers" -Method POST `
+        -Body (@{name="F02-tmp";location='X';temperatureThreshold=85;pressureThreshold=10}|ConvertTo-Json) `
+        -ContentType 'application/json'
+    $id = $tmp.id
+} else {
+    $id = $boilers[0].id
+}
 $from = [uri]::EscapeDataString('2026-12-31T00:00:00Z')
 $to   = [uri]::EscapeDataString('2026-01-01T00:00:00Z')
 try { Invoke-RestMethod "$base/api/v1/telemetry/$id`?from=$from&to=$to" }
@@ -125,7 +136,7 @@ $pod1 = (kubectl get pods -n boiler -l app.kubernetes.io/component=api -o jsonpa
 Write-Host "Убиваю $pod1..."
 kubectl delete pod -n boiler $pod1 --grace-period=0 --force
 
-# 3. Сразу шлём 20 запросов на /health (в идеале — без потери ни одного)
+# 3. Сразу шлём 20 запросов на /health
 $ok = 0; $fail = 0
 1..20 | ForEach-Object {
     try { Invoke-RestMethod "$base/health" -TimeoutSec 3 | Out-Null; $ok++ }
@@ -134,7 +145,7 @@ $ok = 0; $fail = 0
 }
 Write-Host "Health-чеков: $ok успешных / $fail упавших"
 
-# 4. Через 30 сек проверяем что k8s поднял замену
+# 4. Через 30 сек проверяем что кубер поднял замену
 Start-Sleep 30
 kubectl get pods -n boiler -l app.kubernetes.io/component=api
 ```
@@ -157,7 +168,7 @@ $id = (Invoke-RestMethod 'http://localhost:18080/api/v1/boilers' -Method POST `
 Write-Host "Создан бойлер: $id"
 
 # 2. Считаем сколько бойлеров есть до краша
-$before = (Invoke-RestMethod 'http://localhost:18080/api/v1/boilers').Count
+$before = @(Invoke-RestMethod 'http://localhost:18080/api/v1/boilers').Count
 Write-Host "Бойлеров до падения: $before"
 
 # 3. Убиваем Postgres
@@ -178,7 +189,7 @@ while ((Get-Date) -lt $deadline) {
 }
 
 # 6. Тот же запрос — данные должны быть на месте
-$after = (Invoke-RestMethod 'http://localhost:18080/api/v1/boilers').Count
+$after = @(Invoke-RestMethod 'http://localhost:18080/api/v1/boilers').Count
 Write-Host "Бойлеров после восстановления: $after"
 Invoke-RestMethod "http://localhost:18080/api/v1/boilers/$id"
 ```
@@ -213,14 +224,15 @@ catch { Write-Host "API status after drop: $([int]$_.Exception.Response.StatusCo
 
 # 5. Восстанавливаем из последнего бэкапа
 docker exec boiler-postgres psql -U postgres -d boiler_telemetry -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
-docker exec boiler-postgres-backup sh -c "gunzip -c /backups/last/boiler_telemetry-latest.sql.gz | psql -h postgres -U postgres -d boiler_telemetry"
+docker exec -e PGPASSWORD=postgres boiler-postgres-backup sh -c "gunzip -c /backups/last/boiler_telemetry-latest.sql.gz | psql -h postgres -U postgres -d boiler_telemetry"
 
 # 6. Рестартуем приложения чтобы EF Core переподключился к свежей схеме
 kubectl rollout restart deploy/boiler-api deploy/boiler-notification-worker -n boiler
-Start-Sleep 40
+kubectl -n boiler rollout status deploy/boiler-api --timeout=3m
+kubectl -n boiler rollout status deploy/boiler-notification-worker --timeout=3m
 
 # 7. Проверяем что бойлер вернулся
-(Invoke-RestMethod 'http://localhost:18080/api/v1/boilers') | Where-Object { $_.name -like 'R03-*' }
+@(Invoke-RestMethod 'http://localhost:18080/api/v1/boilers') | Where-Object { $_.name -like 'R03-*' }
 ```
 
 **Ожидаемый результат:**
@@ -243,7 +255,7 @@ Start-Sleep 40
 # 1. Стартовое состояние: 2 реплики, CPU низкий
 kubectl get hpa -n boiler boiler-api
 
-# 2. отправляем API ~500 запросами в 10 параллельных потоков (3 минуты)
+# 2. отправляем API ~500 запросами в 10 параллельных потоков
 $jobs = 1..10 | ForEach-Object {
     Start-Job -ScriptBlock {
         $deadline = (Get-Date).AddMinutes(3)
@@ -364,7 +376,9 @@ $r = Invoke-RestMethod 'http://localhost:5601/api/console/proxy?path=boiler-tele
 Write-Host "Логов с этим TraceId: $($r.hits.total.value)"
 
 # 2. Группировка по сервисам и подам
-$r.hits.hits._source.fields | Group-Object Service, Pod | ForEach-Object {
+$r.hits.hits | ForEach-Object {
+    [pscustomobject]@{ Service = $_._source.fields.Service; Pod = $_._source.fields.Pod }
+} | Group-Object Service, Pod | ForEach-Object {
     Write-Host ("  {0}  →  {1} логов" -f $_.Name, $_.Count)
 }
 
