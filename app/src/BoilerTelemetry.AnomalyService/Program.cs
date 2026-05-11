@@ -1,4 +1,5 @@
 using BoilerTelemetry.AnomalyService;
+using BoilerTelemetry.Domain.Tracing;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Prometheus;
@@ -15,7 +16,9 @@ builder.Host.UseSerilog((ctx, services, cfg) =>
     cfg .ReadFrom.Configuration(ctx.Configuration)
         .ReadFrom.Services(services)
         .Enrich.FromLogContext()
+        .Enrich.With<ActivityEnricher>()
         .Enrich.WithProperty("Service", serviceName)
+        .Enrich.WithProperty("Pod", Environment.GetEnvironmentVariable("POD_NAME") ?? Environment.MachineName)
         .WriteTo.Console(new CompactJsonFormatter());
 
     var openSearchUrl = ctx.Configuration["OpenSearch:Url"];
