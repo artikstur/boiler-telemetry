@@ -26,12 +26,26 @@ data:
           flavor: opensearch
           version: "2.15.0"
           timeField: "@timestamp"
+          dataLinks:
+            - field: "fields.TraceId"
+              url: ""
+              datasourceUid: "Jaeger-Traces"
+              urlDisplayLabel: "Открыть trace в Jaeger"
         editable: true
       - name: Jaeger-Traces
         uid: Jaeger-Traces
         type: jaeger
         access: proxy
         url: http://jaeger-ui:16686
+        jsonData:
+          tracesToLogsV2:
+            datasourceUid: "OpenSearch-Logs"
+            spanStartTimeShift: "-1m"
+            spanEndTimeShift: "1m"
+            tags: []
+            filterByTraceID: true
+            customQuery: true
+            query: 'fields.TraceId:"$${__trace.traceId}"'
         editable: true
 ---
 apiVersion: apps/v1

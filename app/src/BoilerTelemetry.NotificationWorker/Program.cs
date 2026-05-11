@@ -1,3 +1,4 @@
+using BoilerTelemetry.Domain.Tracing;
 using BoilerTelemetry.NotificationWorker;
 using BoilerTelemetry.NotificationWorker.Persistence;
 using BoilerTelemetry.NotificationWorker.Services;
@@ -18,7 +19,9 @@ builder.Host.UseSerilog((ctx, services, cfg) =>
     cfg .ReadFrom.Configuration(ctx.Configuration)
         .ReadFrom.Services(services)
         .Enrich.FromLogContext()
+        .Enrich.With<ActivityEnricher>()
         .Enrich.WithProperty("Service", serviceName)
+        .Enrich.WithProperty("Pod", Environment.GetEnvironmentVariable("POD_NAME") ?? Environment.MachineName)
         .WriteTo.Console(new CompactJsonFormatter());
 
     var openSearchUrl = ctx.Configuration["OpenSearch:Url"];

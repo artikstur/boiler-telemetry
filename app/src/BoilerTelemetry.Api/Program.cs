@@ -1,6 +1,7 @@
 using BoilerTelemetry.Api.Middleware;
 using BoilerTelemetry.Application.Services;
 using BoilerTelemetry.Application.Validators;
+using BoilerTelemetry.Domain.Tracing;
 using BoilerTelemetry.Infrastructure;
 using FluentValidation;
 using OpenTelemetry.Resources;
@@ -24,7 +25,9 @@ builder.Host.UseSerilog((ctx, services, cfg) =>
     cfg .ReadFrom.Configuration(ctx.Configuration)
         .ReadFrom.Services(services)
         .Enrich.FromLogContext()
+        .Enrich.With<ActivityEnricher>()    // добавит TraceId/SpanId/ParentSpanId
         .Enrich.WithProperty("Service", serviceName)
+        .Enrich.WithProperty("Pod", Environment.GetEnvironmentVariable("POD_NAME") ?? Environment.MachineName)
         .WriteTo.Console(new CompactJsonFormatter());
 
     var openSearchUrl = ctx.Configuration["OpenSearch:Url"];
@@ -46,6 +49,7 @@ if (!string.IsNullOrEmpty(otlpEndpoint))
         .WithTracing(t => t
             .AddAspNetCoreInstrumentation()
             .AddHttpClientInstrumentation()
+            .AddSource("BoilerTelemetry.Api.Kafka")
             .AddOtlpExporter(o => o.Endpoint = new Uri(otlpEndpoint)));
 }
 
@@ -85,6 +89,16 @@ app.UseSerilogRequestLogging(opts =>
         diagCtx.Set("UserAgent", httpCtx.Request.Headers["User-Agent"].ToString());
         diagCtx.Set("RemoteIp", httpCtx.Connection.RemoteIpAddress?.ToString() ?? "");
     };
+});
+
+// Каждый ответ помечаем X-Trace-Id текущего активити —
+// клиент копирует его и сразу открывает trace в Jaeger / Grafana.
+app.Use(async (ctx, next) =>
+{
+    var traceId = System.Diagnostics.Activity.Current?.TraceId.ToString();
+    if (!string.IsNullOrEmpty(traceId))
+        ctx.Response.Headers["X-Trace-Id"] = traceId;
+    await next();
 });
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();

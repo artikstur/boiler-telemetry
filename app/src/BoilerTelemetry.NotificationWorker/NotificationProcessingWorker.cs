@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Text.Json;
 using BoilerTelemetry.Domain.Entities;
+using BoilerTelemetry.Domain.Tracing;
 using BoilerTelemetry.NotificationWorker.Persistence;
 using BoilerTelemetry.NotificationWorker.Services;
 using Confluent.Kafka;
@@ -10,6 +12,8 @@ namespace BoilerTelemetry.NotificationWorker;
 
 public class NotificationProcessingWorker : BackgroundService
 {
+    public static readonly ActivitySource ActivitySource = new("BoilerTelemetry.NotificationWorker");
+
     private static readonly Counter NotificationsSent = Metrics.CreateCounter(
         "boiler_notifications_sent_total",
         "Количество отправленных уведомлений",
@@ -60,8 +64,21 @@ public class NotificationProcessingWorker : BackgroundService
                 var result = consumer.Consume(stoppingToken);
                 if (result?.Message?.Value is null) continue;
 
+                var parentContext = KafkaTracePropagation.Extract(result.Message.Headers);
+                using var activity = ActivitySource.StartActivity(
+                    $"kafka consume {_settings.InputTopic}",
+                    ActivityKind.Consumer,
+                    parentContext);
+                activity?.SetTag("messaging.system", "kafka");
+                activity?.SetTag("messaging.source", _settings.InputTopic);
+                activity?.SetTag("messaging.kafka.partition", result.Partition.Value);
+                activity?.SetTag("messaging.kafka.offset", result.Offset.Value);
+                activity?.SetTag("messaging.consumer_group", _settings.ConsumerGroup);
+
                 var anomaly = JsonSerializer.Deserialize<AnomalyEvent>(result.Message.Value, JsonOptions);
                 if (anomaly is null) continue;
+                activity?.SetTag("anomaly.type", anomaly.AnomalyType);
+                activity?.SetTag("boiler.id", anomaly.BoilerId.ToString());
 
                 using var scope = _scopeFactory.CreateScope();
                 var sender = scope.ServiceProvider.GetRequiredService<INotificationSender>();
