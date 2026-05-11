@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Text.Json;
 using BoilerTelemetry.Domain.Entities;
+using BoilerTelemetry.Domain.Tracing;
 using Confluent.Kafka;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Options;
@@ -9,6 +11,8 @@ namespace BoilerTelemetry.AnomalyService;
 
 public class AnomalyDetectionWorker : BackgroundService
 {
+    public static readonly ActivitySource ActivitySource = new("BoilerTelemetry.AnomalyService");
+
     private static readonly Counter AnomaliesDetected = Metrics.CreateCounter(
         "boiler_anomalies_detected_total",
         "Количество обнаруженных аномалий",
@@ -81,8 +85,21 @@ public class AnomalyDetectionWorker : BackgroundService
                 var result = consumer.Consume(stoppingToken);
                 if (result?.Message?.Value is null) continue;
 
+                // Извлекаем W3C trace context из заголовков сообщения и продолжаем тот же trace.
+                var parentContext = KafkaTracePropagation.Extract(result.Message.Headers);
+                using var activity = ActivitySource.StartActivity(
+                    $"kafka consume {_settings.InputTopic}",
+                    ActivityKind.Consumer,
+                    parentContext);
+                activity?.SetTag("messaging.system", "kafka");
+                activity?.SetTag("messaging.source", _settings.InputTopic);
+                activity?.SetTag("messaging.kafka.partition", result.Partition.Value);
+                activity?.SetTag("messaging.kafka.offset", result.Offset.Value);
+                activity?.SetTag("messaging.consumer_group", _settings.ConsumerGroup);
+
                 var reading = JsonSerializer.Deserialize<TelemetryReading>(result.Message.Value, JsonOptions);
                 if (reading is null) continue;
+                activity?.SetTag("boiler.id", reading.BoilerId.ToString());
 
                 var boiler = await GetBoilerAsync(reading.BoilerId, stoppingToken);
                 if (boiler is null)
@@ -96,12 +113,23 @@ public class AnomalyDetectionWorker : BackgroundService
                 var anomalies = AnomalyDetector.DetectAnomalies(reading, boiler);
                 foreach (var anomaly in anomalies)
                 {
+                    using var publishActivity = ActivitySource.StartActivity(
+                        $"kafka publish {_settings.OutputTopic}", ActivityKind.Producer);
+                    publishActivity?.SetTag("messaging.system", "kafka");
+                    publishActivity?.SetTag("messaging.destination", _settings.OutputTopic);
+                    publishActivity?.SetTag("anomaly.type", anomaly.AnomalyType);
+
                     var message = new Message<string, string>
                     {
                         Key = anomaly.BoilerId.ToString(),
-                        Value = JsonSerializer.Serialize(anomaly, JsonOptions)
+                        Value = JsonSerializer.Serialize(anomaly, JsonOptions),
+                        Headers = new Headers()
                     };
-                    await producer.ProduceAsync(_settings.OutputTopic, message, stoppingToken);
+                    KafkaTracePropagation.Inject(Activity.Current, message.Headers);
+
+                    var dr = await producer.ProduceAsync(_settings.OutputTopic, message, stoppingToken);
+                    publishActivity?.SetTag("messaging.kafka.partition", dr.Partition.Value);
+                    publishActivity?.SetTag("messaging.kafka.offset", dr.Offset.Value);
                     AnomaliesDetected.WithLabels(anomaly.AnomalyType).Inc();
                     _logger.LogWarning("Anomaly detected: {Type} on boiler {BoilerId}, value={Value}, threshold={Threshold}",
                         anomaly.AnomalyType, anomaly.BoilerId, anomaly.ActualValue, anomaly.Threshold);
