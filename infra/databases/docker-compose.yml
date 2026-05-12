@@ -1,20 +1,25 @@
 name: boiler-telemetry-databases
 
+# Все креды берутся из .env в корне проекта.
+# Запуск:
+#   docker compose --env-file ../../.env -f infra/databases/docker-compose.yml up -d
+# (это делает windows/02-up.ps1 автоматически)
+
 services:
   postgres:
     image: postgres:16-alpine
     container_name: boiler-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: boiler_telemetry
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB must be set in .env}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
     ports:
-      - "25432:5432"
+      - "${POSTGRES_HOST_PORT:-25432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -25,13 +30,13 @@ services:
     restart: unless-stopped
     environment:
       DOCKER_INFLUXDB_INIT_MODE: setup
-      DOCKER_INFLUXDB_INIT_USERNAME: admin
-      DOCKER_INFLUXDB_INIT_PASSWORD: adminpassword
-      DOCKER_INFLUXDB_INIT_ORG: boiler-org
-      DOCKER_INFLUXDB_INIT_BUCKET: telemetry
-      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: dev-token
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUX_ADMIN_USER:?INFLUX_ADMIN_USER must be set in .env}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUX_ADMIN_PASSWORD:?INFLUX_ADMIN_PASSWORD must be set in .env}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUX_ORG:?INFLUX_ORG must be set in .env}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUX_BUCKET:?INFLUX_BUCKET must be set in .env}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_ADMIN_TOKEN:?INFLUX_ADMIN_TOKEN must be set in .env}
     ports:
-      - "28086:8086"
+      - "${INFLUX_HOST_PORT:-28086}:8086"
     volumes:
       - influxdb-data:/var/lib/influxdb2
       - influxdb-config:/etc/influxdb2
@@ -47,7 +52,7 @@ services:
     container_name: boiler-postgres-exporter
     restart: unless-stopped
     environment:
-      DATA_SOURCE_NAME: "postgresql://postgres:postgres@postgres:5432/boiler_telemetry?sslmode=disable"
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
     ports:
       - "9187:9187"
     depends_on:
@@ -61,9 +66,9 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_HOST: postgres
-      POSTGRES_DB: boiler_telemetry
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_EXTRA_OPTS: "-Z6 --schema=public --blobs"
       SCHEDULE: "@hourly"
       BACKUP_KEEP_DAYS: 7
@@ -81,6 +86,8 @@ services:
     image: influxdb:2.7
     container_name: boiler-influx-backup
     restart: unless-stopped
+    environment:
+      INFLUX_TOKEN: ${INFLUX_ADMIN_TOKEN}
     depends_on:
       influxdb:
         condition: service_healthy
@@ -91,7 +98,7 @@ services:
       'while true; do
          ts=$$(date +%Y-%m-%d-%H-%M);
          echo "[$$(date)] backup -> /backups/$$ts";
-         influx backup --host http://influxdb:8086 --token dev-token /backups/$$ts || echo "backup failed";
+         influx backup --host http://influxdb:8086 --token $$INFLUX_TOKEN /backups/$$ts || echo "backup failed";
          # ротация: оставить последние 24 каталога
          ls -1d /backups/*/ 2>/dev/null | sort | head -n -24 | xargs -r rm -rf;
          sleep 3600;

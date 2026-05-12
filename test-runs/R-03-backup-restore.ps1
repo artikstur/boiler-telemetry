@@ -17,7 +17,7 @@ Info "Содержимое /backups/last/ :"
 docker exec boiler-postgres-backup ls -la /backups/last/
 
 Section '3. Дропаем таблицу boilers'
-docker exec boiler-postgres psql -U postgres -d boiler_telemetry -c "DROP TABLE boilers CASCADE;"
+docker exec boiler-postgres psql -U $PG_USER -d $PG_DB -c "DROP TABLE boilers CASCADE;"
 
 Section '4. Проверяем что API теперь пятисотин'
 try {
@@ -30,8 +30,8 @@ try {
 }
 
 Section '5. Восстанавливаем схему из последнего бэкапа'
-docker exec boiler-postgres psql -U postgres -d boiler_telemetry -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
-docker exec -e PGPASSWORD=postgres boiler-postgres-backup sh -c "gunzip -c /backups/last/boiler_telemetry-latest.sql.gz | psql -h postgres -U postgres -d boiler_telemetry" | Out-Null
+docker exec boiler-postgres psql -U $PG_USER -d $PG_DB -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+docker exec -e "PGPASSWORD=$PG_PASSWORD" boiler-postgres-backup sh -c "gunzip -c /backups/last/${PG_DB}-latest.sql.gz | psql -h postgres -U $PG_USER -d $PG_DB" | Out-Null
 Good "Restore выполнен"
 
 Section '6. Рестартуем приложения (чтобы EF Core переподключился к свежей схеме)'

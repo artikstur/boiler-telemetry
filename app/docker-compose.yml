@@ -7,11 +7,11 @@ services:
     deploy:
       replicas: 2
     environment:
-      - ConnectionStrings__PostgreSQL=Host=postgres;Port=5432;Database=boiler_telemetry;Username=postgres;Password=postgres
+      - ConnectionStrings__PostgreSQL=Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       - InfluxDB__Url=http://influxdb:8086
-      - InfluxDB__Token=dev-token
-      - InfluxDB__Org=boiler-org
-      - InfluxDB__Bucket=telemetry
+      - InfluxDB__Token=${INFLUX_ADMIN_TOKEN}
+      - InfluxDB__Org=${INFLUX_ORG}
+      - InfluxDB__Bucket=${INFLUX_BUCKET}
       - Kafka__BootstrapServers=kafka:9092
       - Kafka__Topic=telemetry-events
     depends_on:
@@ -48,7 +48,7 @@ services:
       context: .
       dockerfile: src/BoilerTelemetry.NotificationWorker/Dockerfile
     environment:
-      - ConnectionStrings__PostgreSQL=Host=postgres;Port=5432;Database=boiler_telemetry;Username=postgres;Password=postgres
+      - ConnectionStrings__PostgreSQL=Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       - NotificationWorker__BootstrapServers=kafka:9092
       - NotificationWorker__ConsumerGroup=notification-worker-group
       - NotificationWorker__InputTopic=anomaly-events
@@ -63,9 +63,9 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: boiler_telemetry
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB must be set in .env}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
     ports:
       - "5432:5432"
     volumes:
@@ -80,11 +80,11 @@ services:
     image: influxdb:2.7
     environment:
       DOCKER_INFLUXDB_INIT_MODE: setup
-      DOCKER_INFLUXDB_INIT_USERNAME: admin
-      DOCKER_INFLUXDB_INIT_PASSWORD: adminpassword
-      DOCKER_INFLUXDB_INIT_ORG: boiler-org
-      DOCKER_INFLUXDB_INIT_BUCKET: telemetry
-      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: dev-token
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUX_ADMIN_USER}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUX_ADMIN_PASSWORD}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUX_ORG}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUX_BUCKET}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_ADMIN_TOKEN}
     ports:
       - "8086:8086"
     volumes:

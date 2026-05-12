@@ -1,5 +1,3 @@
-# Хост, на котором крутится Docker с БД (postgres + influxdb).
-# Для minikube это host.minikube.internal, для Docker Desktop K8s — host.docker.internal.
 externalHost: host.minikube.internal
 
 replicaCount:
@@ -8,7 +6,7 @@ replicaCount:
   notificationWorker: 2
 
 image:
-  registry: ""           # пусто = локальные образы из minikube
+  registry: ""          
   pullPolicy: IfNotPresent
 
 api:
@@ -72,17 +70,18 @@ notificationWorker:
 externalDatabases:
   postgres:
     host: postgres   # ExternalName-сервис → externalHost
-    port: 25432
-    database: boiler_telemetry
-    user: postgres
-    password: postgres
+    port: 25432      # переопределяется --set из .env: POSTGRES_HOST_PORT
+    database: ""     # из .env: POSTGRES_DB
+    user: ""         # из .env: POSTGRES_USER
+    password: ""     # из .env: POSTGRES_PASSWORD
   influx:
     url: http://influxdb:28086
-    token: dev-token
-    org: boiler-org
-    bucket: telemetry
+    port: 28086
+    token: ""        # из .env: INFLUX_ADMIN_TOKEN
+    org: ""          # из .env: INFLUX_ORG
+    bucket: ""       # из .env: INFLUX_BUCKET
 
-# ── Redis (bitnami subchart) ──────────────────────────────────────────────────
+# Redis
 redis:
   enabled: true
   architecture: standalone
@@ -92,11 +91,11 @@ redis:
     persistence:
       enabled: false
 
-# ── PostgreSQL subchart выключен — БД вынесена наружу ─────────────────────────
+# PostgreSQL выключена, тк вынесена в вне кубера
 postgresql:
   enabled: false
 
-# ── Kafka (bitnami subchart) ──────────────────────────────────────────────────
+# Kafka
 kafka:
   enabled: true
   replicaCount: 1
@@ -117,7 +116,7 @@ kafka:
         partitions: 3
         replicationFactor: 1
 
-# ── OpenSearch — централизованное хранилище логов ────────────────────────────
+# OpenSearch
 opensearch:
   enabled: true
   image: opensearchproject/opensearch:2.15.0
@@ -141,7 +140,7 @@ opensearchDashboards:
       cpu: "500m"
       memory: "768Mi"
 
-# ── Jaeger — трейсинг ─────────────────────────────────────────────────────────
+# Jaeger
 jaeger:
   enabled: true
   image: jaegertracing/all-in-one:1.60
@@ -153,7 +152,7 @@ jaeger:
       cpu: "500m"
       memory: "512Mi"
 
-# ── Prometheus — метрики приложений и инфраструктуры ─────────────────────
+# Prometheus
 prometheus:
   enabled: true
   image: prom/prometheus:v2.55.0
@@ -165,7 +164,7 @@ prometheus:
       cpu: "500m"
       memory: "768Mi"
 
-# ── Kafka UI — браузер топиков, сообщений, групп консьюмеров ─────────────
+# Kafka UI
 kafkaUi:
   enabled: true
   image: provectuslabs/kafka-ui:latest
@@ -177,7 +176,7 @@ kafkaUi:
       cpu: "500m"
       memory: "512Mi"
 
-# ── Grafana — единый UI для логов (OpenSearch) и трейсов (Jaeger) ───────────
+# Grafana
 grafana:
   enabled: true
   image: grafana/grafana:11.2.0
@@ -189,7 +188,7 @@ grafana:
       cpu: "500m"
       memory: "512Mi"
 
-# ── nginx ingress ─────────────────────────────────────────────────────────────
+# nginx ingress
 nginx:
   enabled: true
 

@@ -1,2 +1,3 @@
-# Локальная папка для запуска под Windows — не коммитить
 /windows/
+.env
+values.local.yaml

@@ -21,11 +21,11 @@ Info "Жду 6 сек чтобы Kafka протолкнула сообщения
 Start-Sleep 6
 
 Section '3. Проверяем что в InfluxDB есть точка'
-$flux = "from(bucket:`"telemetry`") |> range(start: -5m) |> filter(fn: (r) => r.boiler_id == `"$id`")"
+$flux = "from(bucket:`"$INFLUX_BUCKET`") |> range(start: -5m) |> filter(fn: (r) => r.boiler_id == `"$id`")"
 try {
-    $csv = Invoke-RestMethod 'http://localhost:28086/api/v2/query?org=boiler-org' `
+    $csv = Invoke-RestMethod "http://localhost:$($env:INFLUX_HOST_PORT)/api/v2/query?org=$INFLUX_ORG" `
         -Method POST `
-        -Headers @{ Authorization = 'Token dev-token'; 'Content-Type' = 'application/vnd.flux'; Accept = 'application/csv' } `
+        -Headers @{ Authorization = "Token $INFLUX_TOKEN"; 'Content-Type' = 'application/vnd.flux'; Accept = 'application/csv' } `
         -Body $flux -TimeoutSec 10
     Write-Host $csv
     if ($csv -match 'temperature' -and $csv -match '99') { Good "Influx: точка найдена" } else { Warn "Influx ответил, но 99 C не нашёл в CSV — проверь вывод выше" }
@@ -35,9 +35,9 @@ try {
 
 Section '4. Проверяем что в Postgres два уведомления (temperature + pressure)'
 $sql = "SELECT message, created_at FROM notifications WHERE boiler_id='$id' ORDER BY created_at;"
-docker exec boiler-postgres psql -U postgres -d boiler_telemetry -c $sql
+docker exec boiler-postgres psql -U $PG_USER -d $PG_DB -c $sql
 
-$cnt = (docker exec boiler-postgres psql -U postgres -d boiler_telemetry -tAc "SELECT COUNT(*) FROM notifications WHERE boiler_id='$id';") -as [int]
+$cnt = (docker exec boiler-postgres psql -U $PG_USER -d $PG_DB -tAc "SELECT COUNT(*) FROM notifications WHERE boiler_id='$id';") -as [int]
 if ($cnt -eq 2) { Good "В Postgres ровно 2 уведомления (как и ожидалось)" }
 elseif ($cnt -gt 0) { Warn "В Postgres $cnt уведомлений (ожидалось 2)" }
 else { Bad "В Postgres 0 уведомлений — цепочка не дошла до notification-worker" }

@@ -69,9 +69,9 @@ spec:
           image: {{ .Values.grafana.image }}
           env:
             - name: GF_SECURITY_ADMIN_USER
-              value: "admin"
+              value: {{ .Values.grafana.adminUser | default "admin" | quote }}
             - name: GF_SECURITY_ADMIN_PASSWORD
-              value: "admin"
+              value: {{ .Values.grafana.adminPassword | default "admin" | quote }}
             - name: GF_AUTH_ANONYMOUS_ENABLED
               value: "true"
             - name: GF_AUTH_ANONYMOUS_ORG_ROLE

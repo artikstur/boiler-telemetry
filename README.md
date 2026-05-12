@@ -9,10 +9,17 @@
 ./bootstrap.sh 
 ```
 
+Положить креды:
+```bash
+cp .env.example .env
+```
+
 Полный деплой:
 ```bash
 make up
 ```
+
+> Все пароли/токены берутся из `.env`. Шаблон со списком переменных — `.env.example`. Скрипты деплоя подхватят данные оттуда автоматически
 
 ## Команды
 
@@ -35,17 +42,15 @@ make help            # помощь
 
 После `make up` (или `make ports`) открывай:
 
-| URL                       | Сервис                  | Креды             |
-|---------------------------|-------------------------|-------------------|
-| http://localhost:18080    | API                     | —                 |
-| http://localhost:3000     | Grafana                 | `admin` / `admin` |
-| http://localhost:5601     | OpenSearch Dashboards   | —                 |
-| http://localhost:16686    | Jaeger UI               | —                 |
-| http://localhost:8085     | Kafka UI                | —                 |
-| http://localhost:9090     | Prometheus              | —                 |
-| http://localhost:28086    | InfluxDB UI             | `admin` / `adminpassword` |
-
-Подробности (что в каком UI смотреть, KQL-фильтры, примеры PromQL) — в **`ACCESS.md`**.
+| URL                       | Сервис                  | Креды                                                                |
+|---------------------------|-------------------------|----------------------------------------------------------------------|
+| http://localhost:18080    | API                     | —                                                                    |
+| http://localhost:3000     | Grafana                 | `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` из `.env`             |
+| http://localhost:5601     | OpenSearch Dashboards   | —                                                                    |
+| http://localhost:16686    | Jaeger UI               | —                                                                    |
+| http://localhost:8085     | Kafka UI                | —                                                                    |
+| http://localhost:9090     | Prometheus              | —                                                                    |
+| http://localhost:28086    | InfluxDB UI             | `INFLUX_ADMIN_USER` / `INFLUX_ADMIN_PASSWORD` из `.env`              |
 
 ---
 

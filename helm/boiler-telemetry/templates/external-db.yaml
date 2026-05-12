@@ -16,8 +16,8 @@ spec:
   externalName: {{ .Values.externalHost | quote }}
   ports:
     - name: postgres
-      port: 25432
-      targetPort: 25432
+      port: {{ .Values.externalDatabases.postgres.port }}
+      targetPort: {{ .Values.externalDatabases.postgres.port }}
 ---
 apiVersion: v1
 kind: Service
@@ -31,5 +31,5 @@ spec:
   externalName: {{ .Values.externalHost | quote }}
   ports:
     - name: http
-      port: 28086
-      targetPort: 28086
+      port: {{ .Values.externalDatabases.influx.port | default 28086 }}
+      targetPort: {{ .Values.externalDatabases.influx.port | default 28086 }}

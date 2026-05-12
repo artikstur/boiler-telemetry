@@ -7,6 +7,34 @@ $env:Path = "$env:LOCALAPPDATA\bin;$env:Path"
 # Корень проекта = на уровень выше папки test-runs
 $ProjectRoot = (Resolve-Path "$PSScriptRoot\..").Path
 
+# ── Загрузка .env (или .env.example, если .env ещё не создан) ────────────────
+function Import-DotEnv {
+    $envPath = Join-Path $ProjectRoot '.env'
+    if (-not (Test-Path $envPath)) {
+        $envPath = Join-Path $ProjectRoot '.env.example'
+        Write-Host "[i] .env не найден, читаю .env.example. Скопируй .env.example в .env." -ForegroundColor Yellow
+    }
+    if (-not (Test-Path $envPath)) { return }
+    Get-Content $envPath | ForEach-Object {
+        $line = $_.Trim()
+        if (-not $line -or $line.StartsWith('#')) { return }
+        $eq = $line.IndexOf('=')
+        if ($eq -lt 1) { return }
+        $name = $line.Substring(0, $eq).Trim()
+        $val  = $line.Substring($eq + 1).Trim().Trim('"').Trim("'")
+        Set-Item -Path "Env:$name" -Value $val
+    }
+}
+Import-DotEnv
+
+# Шорткаты для удобства
+$PG_USER     = $env:POSTGRES_USER
+$PG_PASSWORD = $env:POSTGRES_PASSWORD
+$PG_DB       = $env:POSTGRES_DB
+$INFLUX_TOKEN = $env:INFLUX_ADMIN_TOKEN
+$INFLUX_ORG   = $env:INFLUX_ORG
+$INFLUX_BUCKET= $env:INFLUX_BUCKET
+
 function Init-Test {
     param([string]$Code, [string]$Title)
     try { $Host.UI.RawUI.WindowTitle = "[$Code] $Title" } catch {}
