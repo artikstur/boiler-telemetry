@@ -68,7 +68,8 @@ public class AnomalyDetectionWorker : BackgroundService
         var producerConfig = new ProducerConfig
         {
             BootstrapServers = _settings.BootstrapServers,
-            Acks = Acks.Leader,
+            Acks = Acks.All,
+            EnableIdempotence = true,
             LingerMs = 5
         };
 

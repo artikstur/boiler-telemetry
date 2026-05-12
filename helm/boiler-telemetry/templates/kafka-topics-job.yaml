@@ -27,8 +27,12 @@ spec:
               until /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list >/dev/null 2>&1; do
                 sleep 3
               done
-              echo "creating topics..."
-              /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic telemetry-events --partitions 3 --replication-factor 1
-              /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic anomaly-events --partitions 3 --replication-factor 1
+              echo "creating topics with RF=3, min.insync.replicas=2..."
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+                --topic telemetry-events --partitions 3 --replication-factor 3 \
+                --config min.insync.replicas=2
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+                --topic anomaly-events --partitions 3 --replication-factor 3 \
+                --config min.insync.replicas=2
               echo "done"
-              /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --describe

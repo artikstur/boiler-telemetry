@@ -1,81 +1,15 @@
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: kafka
-  labels:
-    app: kafka
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: kafka
-  strategy:
-    type: Recreate
-  template:
-    metadata:
-      labels:
-        app: kafka
-    spec:
-      containers:
-        - name: kafka
-          image: apache/kafka:3.7.0
-          env:
-            - name: KAFKA_NODE_ID
-              value: "1"
-            - name: KAFKA_PROCESS_ROLES
-              value: "broker,controller"
-            - name: KAFKA_LISTENERS
-              value: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
-            - name: KAFKA_ADVERTISED_LISTENERS
-              value: "PLAINTEXT://kafka:9092"
-            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
-              value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
-            - name: KAFKA_INTER_BROKER_LISTENER_NAME
-              value: "PLAINTEXT"
-            - name: KAFKA_CONTROLLER_LISTENER_NAMES
-              value: "CONTROLLER"
-            - name: KAFKA_CONTROLLER_QUORUM_VOTERS
-              value: "1@localhost:9093"
-            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
-              value: "1"
-            - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
-              value: "1"
-            - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
-              value: "1"
-            - name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS
-              value: "0"
-            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
-              value: "true"
-            - name: KAFKA_NUM_PARTITIONS
-              value: "3"
-            - name: KAFKA_LOG_DIRS
-              value: "/tmp/kraft-combined-logs"
-            - name: CLUSTER_ID
-              value: "MkU3OEVBNTcwNTJENDM2Qg"
-            - name: KAFKA_HEAP_OPTS
-              value: "-Xmx512M -Xms256M"
-          ports:
-            - containerPort: 9092
-            - containerPort: 9093
-          readinessProbe:
-            tcpSocket:
-              port: 9092
-            initialDelaySeconds: 20
-            periodSeconds: 10
-            failureThreshold: 12
-          resources:
-            requests:
-              cpu: "200m"
-              memory: "512Mi"
-            limits:
-              cpu: "1000m"
-              memory: "1Gi"
----
+# Kafka cluster: 3 KRaft-ноды (broker+controller на каждой).
+# Каждый брокер получает устойчивое DNS-имя kafka-N.kafka-headless.<ns>.svc.cluster.local
+# и собственный PVC. Replication factor у системных и пользовательских топиков = 3,
+# min ISR = 2 — допускает падение одной ноды без потери производительности.
 apiVersion: v1
 kind: Service
 metadata:
-  name: kafka
+  name: kafka-headless
+  labels:
+    app: kafka
 spec:
+  clusterIP: None
   selector:
     app: kafka
   ports:
@@ -85,3 +19,134 @@ spec:
     - name: controller
       port: 9093
       targetPort: 9093
+  publishNotReadyAddresses: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  labels:
+    app: kafka
+spec:
+  selector:
+    app: kafka
+  ports:
+    - name: client
+      port: 9092
+      targetPort: 9092
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kafka
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: kafka
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  labels:
+    app: kafka
+spec:
+  serviceName: kafka-headless
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: kafka
+          image: apache/kafka:3.7.0
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              # ordinal из имени pod: kafka-0 -> 0, kafka-1 -> 1, ...
+              ORDINAL=${HOSTNAME##*-}
+              export KAFKA_NODE_ID=$((ORDINAL + 1))
+              export KAFKA_ADVERTISED_LISTENERS="PLAINTEXT://${HOSTNAME}.kafka-headless:9092"
+              echo "Starting kafka NODE_ID=$KAFKA_NODE_ID ADVERTISED=$KAFKA_ADVERTISED_LISTENERS"
+              exec /etc/kafka/docker/run
+          env:
+            - name: KAFKA_PROCESS_ROLES
+              value: "broker,controller"
+            - name: KAFKA_LISTENERS
+              value: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: "PLAINTEXT"
+            - name: KAFKA_CONTROLLER_LISTENER_NAMES
+              value: "CONTROLLER"
+            - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+              value: "1@kafka-0.kafka-headless:9093,2@kafka-1.kafka-headless:9093,3@kafka-2.kafka-headless:9093"
+            # Системные топики реплицируются на все 3 ноды
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "3"
+            - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "3"
+            - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "2"
+            # Дефолты для авто-создаваемых топиков (если бы они создавались — мы их выключили)
+            - name: KAFKA_DEFAULT_REPLICATION_FACTOR
+              value: "3"
+            - name: KAFKA_MIN_INSYNC_REPLICAS
+              value: "2"
+            - name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS
+              value: "0"
+            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+              value: "false"
+            - name: KAFKA_NUM_PARTITIONS
+              value: "3"
+            - name: KAFKA_LOG_DIRS
+              value: "/var/lib/kafka/data"
+            - name: CLUSTER_ID
+              value: "MkU3OEVBNTcwNTJENDM2Qg"
+            - name: KAFKA_HEAP_OPTS
+              value: "-Xmx512M -Xms256M"
+          ports:
+            - containerPort: 9092
+              name: client
+            - containerPort: 9093
+              name: controller
+          readinessProbe:
+            tcpSocket:
+              port: 9092
+            initialDelaySeconds: 25
+            periodSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            tcpSocket:
+              port: 9092
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/kafka
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi
