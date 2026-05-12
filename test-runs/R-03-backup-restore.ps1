@@ -30,7 +30,7 @@ try {
 }
 
 Section '5. Восстанавливаем схему из последнего бэкапа'
-docker exec boiler-postgres psql -U $PG_USER -d $PG_DB -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+docker exec boiler-postgres psql -U $PG_USER -d $PG_DB -c "DROP SCHEMA public CASCADE;"
 docker exec -e "PGPASSWORD=$PG_PASSWORD" boiler-postgres-backup sh -c "gunzip -c /backups/last/${PG_DB}-latest.sql.gz | psql -h postgres -U $PG_USER -d $PG_DB" | Out-Null
 Good "Restore выполнен"
 
