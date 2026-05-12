@@ -102,7 +102,7 @@ UI после `up`: API `:18080`, Grafana `:3000`, OpenSearch `:5601`, Jaeger `:
 2. Запускаем разовый бэкап через `boiler-postgres-backup` (`/backup.sh`), смотрим `/backups/last/`.
 3. Дропаем таблицу `boilers` (`DROP TABLE boilers CASCADE`).
 4. Проверяем, что API теперь отдаёт `500` на `/boilers` (таблицы нет).
-5. Чистим схему (`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`) и заливаем последний дамп: `gunzip -c .../boiler_telemetry-latest.sql.gz | psql ...` (с `PGPASSWORD=postgres`, передаваемым через `docker exec -e`).
+5. Чистим схему и заливаем последний дамп.
 6. Делаем `kubectl rollout restart` для `boiler-api` и `boiler-notification-worker`, ждём `rollout status`.
 7. Запрашиваем `/boilers`, ищем имя `R03-*`.
 
@@ -111,6 +111,37 @@ UI после `up`: API `:18080`, Grafana `:3000`, OpenSearch `:5601`, Jaeger `:
 - После restore + restart деплоев API снова отдаёт 200, маркер-бойлер на месте.
 
 **Скрипт:** `test-runs/R-03-backup-restore.cmd`
+
+## R-04. Падение брокера Kafka — кластер продолжает работать
+
+**Цель:** при отказе одного из трёх брокеров Kafka прдьюсеры/консьюмероы не теряют сообщения, ISR схлопывается с 3 до 2 и потом восстанавливается.
+**Требование:** «Kafka должна быть развернута с replication factor больше единицы», «Потеря телеметрических данных недопустима» (README, нефункциональные, п.3).
+
+**Конфигурация под этот тест:**
+- Kafka развёрнута как StatefulSet из 3 нод (`kafka-0`, `kafka-1`, `kafka-2`), KRaft, headless service `kafka-headless`, отдельный PVC на каждую ноду.
+- Топики `telemetry-events` и `anomaly-events`: `partitions=3`, `replication-factor=3`, `min.insync.replicas=2`.
+- Producer'ы в API и AnomalyService: `Acks=All`, `EnableIdempotence=true`.
+- PDB `minAvailable=2` — k8s не даст добровольно отключить более одной ноды.
+
+**Что делаем:**
+1. Видим, что StatefulSet `kafka` имеет 3/3 Ready реплики.
+2. Через `kafka-topics --describe` смотрим, что у `telemetry-events` Replicas=3 и Isr=3 на каждом partition.
+3. Шлём контрольную телеметрию и убеждаемся, что HTTP 202.
+4. `kubectl delete pod kafka-0 --grace-period=0 --force` — убиваем один брокер.
+5. Сразу шлём 20 телеметрий — все должны быть приняты.
+6. Через `kafka-topics --describe` (с уцелевшего `kafka-1`) смотрим, что ISR стал 2 элемента для тех partition, где `kafka-0` был лидером.
+7. Ждём 45 секунд — StatefulSet поднимает `kafka-0` заново; ISR возвращается к 3.
+8. Шлём контрольную телеметрию — снова 202.
+9. Проверяем в Postgres-таблице `notifications`, что для маркер-бойлера накопилось ≥ 20 уведомлений — данные не потерялись.
+
+**Ожидаемый результат:**
+- Все 20 запросов во время падения приняты (`ok=20, fail=0`).
+- В описании топика во время падения Isr=2/3, после восстановления Isr=3/3.
+- Кластер `kafka` снова 3/3 Ready через ~45 секунд.
+- В Postgres ≥ 20 уведомлений по маркер-бойлеру (потеря данных не допущена).
+- В Kafka UI (`http://localhost:8085`) во время падения видно, что у двух нод статус ONLINE, у одной — DOWN; partition'ы перебалансируются.
+
+**Скрипт:** `test-runs/R-04-kafka-broker-kill.cmd`
 
 ---
 
@@ -123,7 +154,7 @@ UI после `up`: API `:18080`, Grafana `:3000`, OpenSearch `:5601`, Jaeger `:
 
 **Что делаем:**
 1. Смотрим стартовый HPA и число подов API.
-2. Запускаем 10 параллельных PowerShell-job'ов, каждый 3 минуты долбит `/api/v1/boilers`.
+2. Запускаем 10 параллельных PowerShell-job'ов, каждый 3 минуты стучится в ручку `/api/v1/boilers`.
 3. Каждые 30 секунд (6 проходов) смотрим HPA + число подов.
 4. Считаем суммарное число прошедших запросов.
 
@@ -132,7 +163,7 @@ UI после `up`: API `:18080`, Grafana `:3000`, OpenSearch `:5601`, Jaeger `:
 - HPA скейлит до 4–6 реплик (потолок `maxReplicas=6`).
 - После окончания нагрузки число реплик уменьшается не сразу (HPA cooldown ~5 минут).
 
-**Скрипт:** `test-runs/S-01-hpa-load.cmd` (займёт ~3 минуты)
+**Скрипт:** `test-runs/S-01-hpa-load.cmd`
 
 ## S-02. Ручное масштабирование без downtime
 
