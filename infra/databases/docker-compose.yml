@@ -1,9 +1,5 @@
 name: boiler-telemetry-databases
 
-# Все креды берутся из .env в корне проекта.
-# Запуск:
-#   docker compose --env-file ../../.env -f infra/databases/docker-compose.yml up -d
-# (это делает windows/02-up.ps1 автоматически)
 
 services:
   postgres:
@@ -46,7 +42,6 @@ services:
       timeout: 3s
       retries: 10
 
-  # ── postgres_exporter — отдаёт метрики Postgres в Prometheus формате ─────
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:v0.16.0
     container_name: boiler-postgres-exporter
@@ -59,7 +54,6 @@ services:
       postgres:
         condition: service_healthy
 
-  # ── Бэкапы Postgres (раз в час, ротация: 7 дней / 4 недели / 6 месяцев) ──
   postgres-backup:
     image: prodrigestivill/postgres-backup-local:16
     container_name: boiler-postgres-backup
@@ -81,7 +75,6 @@ services:
       postgres:
         condition: service_healthy
 
-  # ── Бэкапы InfluxDB (раз в час, последние 24 копии) ──────────────────────
   influx-backup:
     image: influxdb:2.7
     container_name: boiler-influx-backup
@@ -99,7 +92,6 @@ services:
          ts=$$(date +%Y-%m-%d-%H-%M);
          echo "[$$(date)] backup -> /backups/$$ts";
          influx backup --host http://influxdb:8086 --token $$INFLUX_TOKEN /backups/$$ts || echo "backup failed";
-         # ротация: оставить последние 24 каталога
          ls -1d /backups/*/ 2>/dev/null | sort | head -n -24 | xargs -r rm -rf;
          sleep 3600;
        done'

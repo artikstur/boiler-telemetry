@@ -15,21 +15,17 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // PostgreSQL
         services.AddDbContext<AppDbContext>(options =>
             options.UseNpgsql(configuration.GetConnectionString("PostgreSQL")));
 
         services.AddScoped<IBoilerRepository, BoilerRepository>();
 
-        // InfluxDB
         services.Configure<InfluxDbSettings>(configuration.GetSection("InfluxDB"));
         services.AddSingleton<ITelemetryRepository, InfluxTelemetryRepository>();
 
-        // Kafka
         services.Configure<KafkaSettings>(configuration.GetSection("Kafka"));
         services.AddSingleton<ITelemetryPublisher, KafkaTelemetryPublisher>();
 
-        // Redis distributed cache (shared between all API replicas)
         services.AddStackExchangeRedisCache(opts =>
             opts.Configuration = configuration.GetConnectionString("Redis") ?? "redis:6379");
 

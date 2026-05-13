@@ -27,7 +27,6 @@ public class TelemetryService
             Timestamp = dto.Timestamp
         };
 
-        // Write to InfluxDB and publish to Kafka concurrently for lower latency
         await Task.WhenAll(
             _telemetryRepository.WriteAsync(reading, ct),
             _telemetryPublisher.PublishAsync(reading, ct)

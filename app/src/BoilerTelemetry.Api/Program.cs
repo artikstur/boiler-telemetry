@@ -40,7 +40,6 @@ builder.Host.UseSerilog((ctx, services, cfg) =>
         });
 });
 
-// OpenTelemetry tracing → Jaeger via OTLP
 var otlpEndpoint = builder.Configuration["Otel:Endpoint"];
 if (!string.IsNullOrEmpty(otlpEndpoint))
 {
@@ -53,27 +52,21 @@ if (!string.IsNullOrEmpty(otlpEndpoint))
             .AddOtlpExporter(o => o.Endpoint = new Uri(otlpEndpoint)));
 }
 
-// Infrastructure (PostgreSQL, InfluxDB, Kafka, Redis)
 builder.Services.AddInfrastructure(builder.Configuration);
 
-// Application services
 builder.Services.AddScoped<BoilerService>();
 builder.Services.AddScoped<TelemetryService>();
 
-// Validation
 builder.Services.AddValidatorsFromAssemblyContaining<TelemetryRequestValidator>();
 
-// API
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Health checks
 builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 
-// Ensure database schema is created
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<BoilerTelemetry.Infrastructure.Persistence.AppDbContext>();
@@ -91,8 +84,6 @@ app.UseSerilogRequestLogging(opts =>
     };
 });
 
-// Каждый ответ помечаем X-Trace-Id текущего активити —
-// клиент копирует его и сразу открывает trace в Jaeger / Grafana.
 app.Use(async (ctx, next) =>
 {
     var traceId = System.Diagnostics.Activity.Current?.TraceId.ToString();

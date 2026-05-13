@@ -25,7 +25,6 @@ public class ExceptionHandlingMiddleware
             await _next(context);
 
             sw.Stop();
-            // Логируем негативные HTTP-ответы (4xx) которые не выбросили исключение
             if (context.Response.StatusCode is >= 400 and < 500)
             {
                 using (LogContext.PushProperty("StatusCode", context.Response.StatusCode))

@@ -60,9 +60,6 @@ metricServer.Start();
 
 var app = builder.Build();
 
-// Создаём таблицу notifications. EnsureCreated() пропускает создание,
-// если в БД уже есть _какие-то_ таблицы (от другого DbContext, например API),
-// поэтому используем явный idempotent SQL.
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<BoilerTelemetry.NotificationWorker.Persistence.NotificationDbContext>();

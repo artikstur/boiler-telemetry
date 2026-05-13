@@ -66,22 +66,20 @@ notificationWorker:
     enabled: true
     minAvailable: 1
 
-# ── Подключение к БД (хостится снаружи в Docker) ──────────────────────────────
 externalDatabases:
   postgres:
-    host: postgres   # ExternalName-сервис → externalHost
-    port: 25432      # переопределяется --set из .env: POSTGRES_HOST_PORT
-    database: ""     # из .env: POSTGRES_DB
-    user: ""         # из .env: POSTGRES_USER
-    password: ""     # из .env: POSTGRES_PASSWORD
+    host: postgres
+    port: 25432
+    database: ""
+    user: ""
+    password: ""
   influx:
     url: http://influxdb:28086
     port: 28086
-    token: ""        # из .env: INFLUX_ADMIN_TOKEN
-    org: ""          # из .env: INFLUX_ORG
-    bucket: ""       # из .env: INFLUX_BUCKET
+    token: ""
+    org: ""
+    bucket: ""
 
-# Redis
 redis:
   enabled: true
   architecture: standalone
@@ -91,11 +89,9 @@ redis:
     persistence:
       enabled: false
 
-# PostgreSQL выключена, тк вынесена в вне кубера
 postgresql:
   enabled: false
 
-# Kafka
 kafka:
   enabled: true
   replicaCount: 1
@@ -116,7 +112,6 @@ kafka:
         partitions: 3
         replicationFactor: 1
 
-# OpenSearch
 opensearch:
   enabled: true
   image: opensearchproject/opensearch:2.15.0
@@ -140,7 +135,6 @@ opensearchDashboards:
       cpu: "500m"
       memory: "768Mi"
 
-# Jaeger
 jaeger:
   enabled: true
   image: jaegertracing/all-in-one:1.60
@@ -152,7 +146,6 @@ jaeger:
       cpu: "500m"
       memory: "512Mi"
 
-# Prometheus
 prometheus:
   enabled: true
   image: prom/prometheus:v2.55.0
@@ -164,7 +157,6 @@ prometheus:
       cpu: "500m"
       memory: "768Mi"
 
-# Kafka UI
 kafkaUi:
   enabled: true
   image: provectuslabs/kafka-ui:latest
@@ -176,7 +168,6 @@ kafkaUi:
       cpu: "500m"
       memory: "512Mi"
 
-# Grafana
 grafana:
   enabled: true
   image: grafana/grafana:11.2.0
@@ -188,7 +179,6 @@ grafana:
       cpu: "500m"
       memory: "512Mi"
 
-# nginx ingress
 nginx:
   enabled: true
 

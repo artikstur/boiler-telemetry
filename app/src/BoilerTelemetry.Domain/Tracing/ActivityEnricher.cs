@@ -4,10 +4,6 @@ using Serilog.Events;
 
 namespace BoilerTelemetry.Domain.Tracing;
 
-/// <summary>
-/// Кладёт TraceId/SpanId текущего System.Diagnostics.Activity в каждую запись лога.
-/// Так логи в OpenSearch связываются с трейсами в Jaeger по trace_id.
-/// </summary>
 public sealed class ActivityEnricher : ILogEventEnricher
 {
     public void Enrich(LogEvent logEvent, ILogEventPropertyFactory propertyFactory)

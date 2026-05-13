@@ -41,8 +41,6 @@ public class NotificationProcessingWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Уступаем поток host startup'у, иначе блокирующий consumer.Consume()
-        // не даст Kestrel открыть /health endpoint на 8080.
         await Task.Yield();
 
         var config = new ConsumerConfig
@@ -107,7 +105,6 @@ public class NotificationProcessingWorker : BackgroundService
             }
             catch (OperationCanceledException)
             {
-                // Normal shutdown - token was cancelled
                 break;
             }
             catch (Exception ex)

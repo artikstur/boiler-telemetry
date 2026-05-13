@@ -3,7 +3,6 @@ services:
     build:
       context: .
       dockerfile: src/BoilerTelemetry.Api/Dockerfile
-    # no host port — nginx is the single entry point (mirrors K8s Service + Ingress pattern)
     deploy:
       replicas: 2
     environment:
@@ -115,7 +114,6 @@ services:
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_NUM_PARTITIONS: 3
 
-  # ─── nginx — load balancer (replaces K8s Ingress in local dev) ──────────
   nginx:
     image: nginx:alpine
     ports:
@@ -125,7 +123,6 @@ services:
     depends_on:
       - boiler-telemetry-api
 
-  # ─── Redis — distributed cache shared across all service replicas ─────────
   redis:
     image: redis:7-alpine
     ports:
@@ -136,7 +133,6 @@ services:
       timeout: 3s
       retries: 5
 
-  # ─── kafka-setup — creates topics with 3 partitions on first start ────────
   kafka-setup:
     image: confluentinc/cp-kafka:7.5.0
     depends_on:

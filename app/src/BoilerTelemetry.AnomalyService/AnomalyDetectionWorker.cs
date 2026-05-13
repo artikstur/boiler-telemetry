@@ -53,8 +53,6 @@ public class AnomalyDetectionWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Уступаем поток host startup'у, иначе блокирующий consumer.Consume()
-        // не даст Kestrel открыть /health endpoint на 8080.
         await Task.Yield();
 
         var consumerConfig = new ConsumerConfig
@@ -86,7 +84,6 @@ public class AnomalyDetectionWorker : BackgroundService
                 var result = consumer.Consume(stoppingToken);
                 if (result?.Message?.Value is null) continue;
 
-                // Извлекаем W3C trace context из заголовков сообщения и продолжаем тот же trace.
                 var parentContext = KafkaTracePropagation.Extract(result.Message.Headers);
                 using var activity = ActivitySource.StartActivity(
                     $"kafka consume {_settings.InputTopic}",

@@ -5,9 +5,6 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace BoilerTelemetry.Api.Controllers;
 
-/// <summary>
-/// API для приёма и получения телеметрии котлов.
-/// </summary>
 [ApiController]
 [Route("api/v1/[controller]")]
 public class TelemetryController : ControllerBase
@@ -21,19 +18,6 @@ public class TelemetryController : ControllerBase
         _validator = validator;
     }
 
-    /// <summary>
-    /// Отправить телеметрию котла.
-    /// </summary>
-    /// <param name="dto">Показания датчиков.</param>
-    /// <param name="ct">Токен отмены.</param>
-    /// <remarks>
-    /// Ограничения:
-    /// - Temperature: от -50 до 200
-    /// - Pressure: от 0 до 50
-    /// - Timestamp не может быть из будущего
-    /// </remarks>
-    /// <response code="202">Телеметрия успешно принята.</response>
-    /// <response code="400">Ошибка валидации.</response>
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [HttpPost]
@@ -47,16 +31,6 @@ public class TelemetryController : ControllerBase
         return Accepted(new { message = "accepted" });
     }
 
-    /// <summary>
-    /// Получить историю телеметрии котла за период.
-    /// </summary>
-    /// <param name="boilerId">Идентификатор котла.</param>
-    /// <param name="from">Начало периода (UTC).</param>
-    /// <param name="to">Конец периода (UTC).</param>
-    /// <param name="ct">Токен отмены.</param>
-    /// <returns>Список показаний телеметрии.</returns>
-    /// <response code="200">История успешно получена.</response>
-    /// <response code="400">Некорректный диапазон дат.</response>
     [ProducesResponseType(typeof(IEnumerable<TelemetryResponseDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [HttpGet("{boilerId:guid}")]

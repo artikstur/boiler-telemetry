@@ -50,7 +50,6 @@ public class KafkaTelemetryPublisher : ITelemetryPublisher, IDisposable
             Value = JsonSerializer.Serialize(reading, JsonSerializerOptions),
             Headers = new Headers()
         };
-        // Инжектим текущий trace context в Kafka headers — потребитель его подхватит.
         KafkaTracePropagation.Inject(Activity.Current, message.Headers);
 
         var dr = await _producer.ProduceAsync(_settings.Topic, message, ct);

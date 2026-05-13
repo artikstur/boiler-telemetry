@@ -5,9 +5,6 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace BoilerTelemetry.Api.Controllers;
 
-/// <summary>
-/// API для управления котлами.
-/// </summary>
 [ApiController]
 [Route("api/v1/[controller]")]
 public class BoilersController : ControllerBase
@@ -21,12 +18,6 @@ public class BoilersController : ControllerBase
         _createValidator = createValidator;
     }
 
-    /// <summary>
-    /// Получить список всех котлов.
-    /// </summary>
-    /// <param name="ct">Токен отмены.</param>
-    /// <returns>Список котлов.</returns>
-    /// <response code="200">Список успешно получен.</response>
     [ProducesResponseType(typeof(IEnumerable<BoilerResponseDto>), StatusCodes.Status200OK)]
     [HttpGet]
     public async Task<IActionResult> GetAll(CancellationToken ct)
@@ -35,14 +26,6 @@ public class BoilersController : ControllerBase
         return Ok(boilers);
     }
 
-    /// <summary>
-    /// Получить котёл по идентификатору.
-    /// </summary>
-    /// <param name="id">Идентификатор котла.</param>
-    /// <param name="ct">Токен отмены.</param>
-    /// <returns>Информация о котле.</returns>
-    /// <response code="200">Котёл найден.</response>
-    /// <response code="404">Котёл не найден.</response>
     [ProducesResponseType(typeof(BoilerResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [HttpGet("{id:guid}")]
@@ -55,21 +38,6 @@ public class BoilersController : ControllerBase
             : Ok(boiler);
     }
 
-    /// <summary>
-    /// Создать новый котёл.
-    /// </summary>
-    /// <param name="dto">Данные для создания котла.</param>
-    /// <param name="ct">Токен отмены.</param>
-    /// <returns>Созданный котёл.</returns>
-    /// <remarks>
-    /// Требования:
-    /// - Name должен быть уникальным
-    /// - TemperatureThreshold должен быть больше 0
-    /// - PressureThreshold должен быть больше 0
-    /// </remarks>
-    /// <response code="201">Котёл успешно создан.</response>
-    /// <response code="400">Ошибка валидации.</response>
-    /// <response code="409">Котёл с таким именем уже существует.</response>
     [ProducesResponseType(typeof(BoilerResponseDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -91,19 +59,6 @@ public class BoilersController : ControllerBase
             created);
     }
 
-    /// <summary>
-    /// Обновить данные котла.
-    /// </summary>
-    /// <param name="id">Идентификатор котла.</param>
-    /// <param name="dto">Обновляемые поля.</param>
-    /// <param name="ct">Токен отмены.</param>
-    /// <returns>Обновлённый котёл.</returns>
-    /// <remarks>
-    /// Все поля являются необязательными.
-    /// Обновляются только переданные значения.
-    /// </remarks>
-    /// <response code="200">Котёл успешно обновлён.</response>
-    /// <response code="404">Котёл не найден.</response>
     [ProducesResponseType(typeof(BoilerResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [HttpPut("{id:guid}")]
@@ -119,14 +74,6 @@ public class BoilersController : ControllerBase
             : Ok(updated);
     }
 
-    /// <summary>
-    /// Удалить котёл.
-    /// </summary>
-    /// <param name="id">Идентификатор котла.</param>
-    /// <param name="ct">Токен отмены.</param>
-    /// <returns>Результат удаления.</returns>
-    /// <response code="200">Котёл успешно удалён.</response>
-    /// <response code="404">Котёл не найден.</response>
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [HttpDelete("{id:guid}")]

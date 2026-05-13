@@ -53,9 +53,6 @@ builder.Services.AddHttpClient("CrudApi", client =>
 builder.Services.AddHostedService<AnomalyDetectionWorker>();
 builder.Services.AddHealthChecks();
 
-// Отдельный MetricServer на 9090 — слушает /metrics независимо от Kestrel.
-// Это важно потому что блокирующий consumer.Consume() мешает Kestrel-у
-// надёжно открывать порты.
 var metricServer = new KestrelMetricServer(port: 9090);
 metricServer.Start();
 
